@@ -2536,6 +2536,7 @@ project(":web") {
 
         def compileNativeTask = task("compileNative${t.capital}", dependsOn: generateHeaders) << {
             println "Building Webkit configuration /$webkitConfig/ into $webkitOutputDir"
+            mkdir "${webkitOutputDir}"
 
             exec {
                 workingDir("$webkitOutputDir")
