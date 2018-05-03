@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -69,7 +69,6 @@ import javafx.util.Callback;
 
 import com.sun.javafx.scene.control.skin.FXVK;
 import com.sun.javafx.scene.web.behavior.HTMLEditorBehavior;
-import com.sun.webkit.dom.HTMLDocumentImpl;
 import com.sun.webkit.WebPage;
 import com.sun.javafx.webkit.Accessor;
 
@@ -444,7 +443,6 @@ public class HTMLEditorSkin extends SkinBase<HTMLEditor> {
             if (newValue.doubleValue() == totalWork) {
                 cachedHTMLText = null;
                 Platform.runLater(() -> {
-                    setDesignMode("on");
                     setContentEditable(true);
                     updateToolbarState(true);
                     updateNodeOrientation();
@@ -1104,11 +1102,6 @@ public class HTMLEditorSkin extends SkinBase<HTMLEditor> {
         HTMLElement htmlDocumentElement = (HTMLElement)htmlDocument.getDocumentElement();
         HTMLElement htmlBodyElement = (HTMLElement)htmlDocumentElement.getElementsByTagName("body").item(0);
         htmlBodyElement.setAttribute("contenteditable", Boolean.toString(b));
-    }
-
-    private void setDesignMode(String mode) {
-        HTMLDocumentImpl htmlDocumentImpl = (HTMLDocumentImpl)webPage.getDocument(webPage.getMainFrame());
-        htmlDocumentImpl.setDesignMode(mode);
     }
 
     private boolean getCommandState(String command) {
