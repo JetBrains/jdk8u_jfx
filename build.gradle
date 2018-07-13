@@ -2491,7 +2491,6 @@ project(":web") {
                      "com.sun.webkit.PageCache",
                      "com.sun.webkit.PopupMenu",
                      "com.sun.webkit.SharedBuffer",
-                     "com.sun.webkit.WatchdogTimer",
                      "com.sun.webkit.WebPage",
                      "com.sun.webkit.LoadListenerClient",
                      "com.sun.webkit.event.WCFocusEvent",
@@ -2525,6 +2524,7 @@ project(":web") {
 
     compileTargets { t ->
         def targetProperties = project.rootProject.ext[t.upper]
+        def webkitProperties = targetProperties.webkit
         def classifier = (t.name != "linux" && t.name != "win") ? t.name :
                           IS_64 ? "${t.name}-amd64" : "${t.name}-i586"
 
@@ -2562,12 +2562,19 @@ project(":web") {
                 } else if (t.name == "mac") {
                     cmakeArgs = "-DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_MIN_VERSION -DCMAKE_OSX_SYSROOT=$MACOSX_SDK_PATH"
                 } else if (t.name == "linux") {
-                    cmakeArgs = "-DCMAKE_SYSTEM_NAME=Linux"
+                    cmakeArgs = "-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_C_COMPILER=${webkitProperties.compiler}"
                     if (IS_64) {
                         cmakeArgs = "$cmakeArgs -DCMAKE_SYSTEM_PROCESSOR=x86_64"
                     } else {
-                        cmakeArgs = "$cmakeArgs -DCMAKE_SYSTEM_PROCESSOR=i586 -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32"
+                        cmakeArgs = "$cmakeArgs -DCMAKE_SYSTEM_PROCESSOR=i586"
                     }
+                    // TODO: Use cflags and ldflags from all platforms
+                    def cFlags = webkitProperties.ccFlags?.join(' ') ?: ''
+                    def lFlags = webkitProperties.linkFlags?.join(' ') ?: ''
+                    // -shared flag should be omitted while creating executable.
+                    def exeFlags = webkitProperties.linkFlags?.join(' ')?.replace('-shared', '') ?: ''
+                    cmakeArgs = "$cmakeArgs -DCMAKE_C_FLAGS='${cFlags}' -DCMAKE_CXX_FLAGS='${cFlags}'"
+                    cmakeArgs = "$cmakeArgs -DCMAKE_SHARED_LINKER_FLAGS='${lFlags}' -DCMAKE_EXE_LINKER_FLAGS='${exeFlags}'"
                 } else if (t.name.startsWith("arm")) {
                     fail("ARM target is not supported as of now.")
                 }
@@ -2592,18 +2599,21 @@ project(":web") {
                     targetCpuBitDepthSwitch = "--32-bit"
                 }
 
+                cmakeArgs += " -DJAVAFX_RELEASE_VERSION=8.0"
                 commandLine("perl", "$projectDir/src/main/native/Tools/Scripts/build-webkit",
                     "--java", "--icu-unicode", targetCpuBitDepthSwitch,
                     "--cmakeargs=${cmakeArgs}")
             }
 
+            // Cmake places Windows DLL in bin directory
+            def dllDir = IS_WINDOWS ? "bin" : "lib"
             def library = rootProject.ext[t.upper].library
             copy {
-                from "$webkitOutputDir/$webkitConfig/lib/${library('jfxwebkit')}"
+                from "$webkitOutputDir/$webkitConfig/$dllDir/${library('jfxwebkit')}"
                 into "$buildDir/libs/${t.name}"
             }
             copy {
-                from "$webkitOutputDir/$webkitConfig/lib/${library('DumpRenderTreeJava')}"
+                from "$webkitOutputDir/$webkitConfig/$dllDir/${library('DumpRenderTreeJava')}"
                 into "$buildDir/test/${t.name}"
             }
         }
@@ -2611,7 +2621,6 @@ project(":web") {
         compileNative.dependsOn compileNativeTask
 
         if (IS_WINDOWS && t.name == "win") {
-            def webkitProperties = project.rootProject.ext[t.upper].webkit
             def rcTask = project.task("rc${t.capital}", type: CompileResourceTask) {
                 compiler = webkitProperties.rcCompiler
                 source(webkitProperties.rcSource)

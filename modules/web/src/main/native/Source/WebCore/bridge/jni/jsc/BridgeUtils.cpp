@@ -1,5 +1,26 @@
 /*
- * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 #include "config.h"
@@ -23,14 +44,14 @@
 #include "runtime_array.h"
 #include "runtime_object.h"
 #include "runtime_root.h"
-#include <runtime/JSArray.h>
-#include <runtime/JSLock.h>
 #include <wtf/java/JavaRef.h>
 #include <wtf/text/WTFString.h>
-#include <APICast.h>
-#include <API/OpaqueJSString.h>
-#include <API/JSBase.h>
-#include <API/JSStringRef.h>
+#include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/JSArray.h>
+#include <JavaScriptCore/JSLock.h>
+#include <JavaScriptCore/OpaqueJSString.h>
+#include <JavaScriptCore/JSBase.h>
+#include <JavaScriptCore/JSStringRef.h>
 
 #include "com_sun_webkit_dom_JSObject.h"
 
@@ -107,7 +128,7 @@ JSGlobalContextRef getGlobalContext(WebCore::ScriptController* scriptController)
 JSStringRef asJSStringRef(JNIEnv *env, jstring str)
 {
     unsigned int slen = env->GetStringLength(str);
-    const jchar* schars = env->GetStringCritical(str, NULL);
+    const jchar* schars = env->GetStringCritical(str, nullptr);
     JSStringRef name = JSStringCreateWithCharacters((const JSChar*) schars, slen);
     env->ReleaseStringCritical(str, schars);
     return name;
@@ -120,7 +141,7 @@ JSValueRef Java_Object_to_JSValue(
     jobject val,
     jobject accessControlContext)
 {
-    if (val == NULL)
+    if (val == nullptr)
         return JSValueMakeNull(ctx);
     JSC::ExecState* exec = toJS(ctx);
     JSC::JSLockHolder lock(exec);
@@ -186,7 +207,7 @@ JSValueRef Java_Object_to_JSValue(
 
 jstring JSValue_to_Java_String(JSValueRef value, JNIEnv* env, JSContextRef ctx)
 {
-    JSStringRef str = JSValueToStringCopy(ctx, value, NULL);
+    JSStringRef str = JSValueToStringCopy(ctx, value, nullptr);
     size_t slen = JSStringGetLength(str);
     const JSChar* schars = JSStringGetCharactersPtr(str);
     jstring result = env->NewString((const jchar*) schars, slen);
@@ -230,17 +251,17 @@ jobject executeScript(
     JSC::Bindings::RootObject *rootObject,
     jstring str)
 {
-    if (str == NULL) {
+    if (str == nullptr) {
         throwNullPointerException(env);
-        return NULL;
+        return nullptr;
     }
     JSStringRef script = asJSStringRef(env, str);
     JSValueRef exception = 0;
-    JSValueRef value = JSEvaluateScript(ctx, script, object, NULL, 1, &exception);
+    JSValueRef value = JSEvaluateScript(ctx, script, object, nullptr, 1, &exception);
     JSStringRelease(script);
     if (exception) {
         throwJavaException(env, ctx, exception, rootObject);
-        return NULL;
+        return nullptr;
     }
     return WebCore::JSValue_to_Java_Object(value, env, ctx, rootObject);
 }
@@ -254,12 +275,10 @@ RefPtr<JSC::Bindings::RootObject> checkJSPeer(
     JSObjectRef &object,
     JSContextRef &context)
 {
-    JSC::Bindings::RootObject *rootObject = NULL;
+    JSC::Bindings::RootObject *rootObject = nullptr;
     switch (peer_type) {
     case com_sun_webkit_dom_JSObject_JS_CONTEXT_OBJECT:
         {
-            //based on [JavaJSObject] implementation
-            //[Source/WebCore/bridge/jni/jni_jsobject.mm]
             object = static_cast<JSObjectRef>(jlong_to_ptr(peer));
             rootObject = JSC::Bindings::findProtectingRootObject(reinterpret_cast<JSC::JSObject*>(object));
             if (rootObject) {
@@ -303,16 +322,16 @@ extern "C" {
 JNIEXPORT jobject JNICALL Java_com_sun_webkit_dom_JSObject_evalImpl
 (JNIEnv *env, jclass, jlong peer, jint peer_type, jstring str)
 {
-    if (str == NULL) {
+    if (str == nullptr) {
         throwNullPointerException(env);
-        return NULL;
+        return nullptr;
     }
     JSObjectRef object;
     JSContextRef ctx;
     RefPtr<JSC::Bindings::RootObject> rootObject(checkJSPeer(peer, peer_type, object, ctx));
-    if (rootObject.get() == NULL) {
+    if (rootObject.get() == nullptr) {
         throwNullPointerException(env);
-        return NULL;
+        return nullptr;
     }
 
     return WebCore::executeScript(env, object, ctx, rootObject.get(), str);
@@ -321,20 +340,20 @@ JNIEXPORT jobject JNICALL Java_com_sun_webkit_dom_JSObject_evalImpl
 JNIEXPORT jobject JNICALL Java_com_sun_webkit_dom_JSObject_getMemberImpl
 (JNIEnv *env, jclass, jlong peer, jint peer_type, jstring str)
 {
-    if (str == NULL) {
+    if (str == nullptr) {
         throwNullPointerException(env);
-        return NULL;
+        return nullptr;
     }
     JSObjectRef object;
     JSContextRef ctx;
     RefPtr<JSC::Bindings::RootObject> rootObject(checkJSPeer(peer, peer_type, object, ctx));
 
-    if (rootObject.get() == NULL) {
+    if (rootObject.get() == nullptr) {
         throwNullPointerException(env);
-        return NULL;
+        return nullptr;
     }
     JSStringRef name = WebCore::asJSStringRef(env, str);
-    JSValueRef value = JSObjectGetProperty(ctx, object, name, NULL);
+    JSValueRef value = JSObjectGetProperty(ctx, object, name, nullptr);
     JSStringRelease(name);
     return WebCore::JSValue_to_Java_Object(value, env, ctx, rootObject.get());
 }
@@ -342,14 +361,14 @@ JNIEXPORT jobject JNICALL Java_com_sun_webkit_dom_JSObject_getMemberImpl
 JNIEXPORT void JNICALL Java_com_sun_webkit_dom_JSObject_setMemberImpl
 (JNIEnv *env, jclass, jlong peer, jint peer_type, jstring str, jobject value, jobject accessControlContext)
 {
-    if (str == NULL) {
+    if (str == nullptr) {
         throwNullPointerException(env);
         return;
     }
     JSObjectRef object;
     JSContextRef ctx;
     RefPtr<JSC::Bindings::RootObject> rootObject(checkJSPeer(peer, peer_type, object, ctx));
-    if (rootObject.get() == NULL) {
+    if (rootObject.get() == nullptr) {
         throwNullPointerException(env);
         return;
     }
@@ -366,19 +385,19 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_JSObject_setMemberImpl
 JNIEXPORT void JNICALL Java_com_sun_webkit_dom_JSObject_removeMemberImpl
 (JNIEnv *env, jclass, jlong peer, jint peer_type, jstring str)
 {
-    if (str == NULL) {
+    if (str == nullptr) {
         throwNullPointerException(env);
         return;
     }
     JSObjectRef object;
     JSContextRef ctx;
-    if (checkJSPeer(peer, peer_type, object, ctx) == NULL) {
+    if (!checkJSPeer(peer, peer_type, object, ctx)) {
         throwNullPointerException(env);
         return;
     }
 
     JSStringRef name = WebCore::asJSStringRef(env, str);
-    JSObjectDeleteProperty(ctx, object, name, NULL);
+    JSObjectDeleteProperty(ctx, object, name, nullptr);
     JSStringRelease(name);
 }
 
@@ -388,12 +407,12 @@ JNIEXPORT jobject JNICALL Java_com_sun_webkit_dom_JSObject_getSlotImpl
     JSObjectRef object;
     JSContextRef ctx;
     RefPtr<JSC::Bindings::RootObject> rootObject(checkJSPeer(peer, peer_type, object, ctx));
-    if (rootObject.get() == NULL) {
+    if (rootObject.get() == nullptr) {
         throwNullPointerException(env);
-        return NULL;
+        return nullptr;
     }
 
-    JSValueRef value = JSObjectGetPropertyAtIndex(ctx, object, index, NULL);
+    JSValueRef value = JSObjectGetPropertyAtIndex(ctx, object, index, nullptr);
     return WebCore::JSValue_to_Java_Object(value, env, ctx, rootObject.get());
 }
 
@@ -403,13 +422,13 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_JSObject_setSlotImpl
     JSObjectRef object;
     JSContextRef ctx;
     RefPtr<JSC::Bindings::RootObject> rootObject(checkJSPeer(peer, peer_type, object, ctx));
-    if (rootObject.get() == NULL) {
+    if (rootObject.get() == nullptr) {
         throwNullPointerException(env);
         return;
     }
 
     JSValueRef jsvalue = WebCore::Java_Object_to_JSValue(env, ctx, rootObject.get(), value, accessControlContext);
-    JSObjectSetPropertyAtIndex(ctx, object, (unsigned) index, jsvalue, NULL);
+    JSObjectSetPropertyAtIndex(ctx, object, (unsigned) index, jsvalue, nullptr);
 }
 
 JNIEXPORT jstring JNICALL Java_com_sun_webkit_dom_JSObject_toStringImpl
@@ -417,7 +436,7 @@ JNIEXPORT jstring JNICALL Java_com_sun_webkit_dom_JSObject_toStringImpl
 {
     JSObjectRef object;
     JSContextRef ctx;
-    if (checkJSPeer(peer, peer_type, object, ctx) == NULL) {
+    if (!checkJSPeer(peer, peer_type, object, ctx)) {
         return nullptr;
     }
 
@@ -431,24 +450,24 @@ JNIEXPORT jstring JNICALL Java_com_sun_webkit_dom_JSObject_toStringImpl
 JNIEXPORT jobject JNICALL Java_com_sun_webkit_dom_JSObject_callImpl
   (JNIEnv *env, jclass, jlong peer, jint peer_type, jstring methodName, jobjectArray args, jobject accessControlContext)
 {
-    if (methodName == NULL || args == NULL) {
+    if (methodName == nullptr || args == nullptr) {
         throwNullPointerException(env);
-        return NULL;
+        return nullptr;
     }
     JSObjectRef object;
     JSContextRef ctx;
     RefPtr<JSC::Bindings::RootObject> rootObject(checkJSPeer(peer, peer_type, object, ctx));
     if (!rootObject || !rootObject.get() || !ctx) {
         env->ThrowNew(getJSExceptionClass(env), "Invalid function reference");
-        return NULL;
+        return nullptr;
     }
 
     JSStringRef name = WebCore::asJSStringRef(env, methodName);
-    JSValueRef member = JSObjectGetProperty(ctx, object, name, NULL);
+    JSValueRef member = JSObjectGetProperty(ctx, object, name, nullptr);
     JSStringRelease(name);
     if (!JSValueIsObject(ctx, member))
         return JSC::Bindings::convertUndefinedToJObject();
-    JSObjectRef function = JSValueToObject(ctx, member, NULL);
+    JSObjectRef function = JSValueToObject(ctx, member, nullptr);
     if (! JSObjectIsFunction(ctx, function))
         return JSC::Bindings::convertUndefinedToJObject();
     size_t argumentCount = env->GetArrayLength(args);
@@ -464,7 +483,7 @@ JNIEXPORT jobject JNICALL Java_com_sun_webkit_dom_JSObject_callImpl
     delete[] arguments;
     if (exception) {
         WebCore::throwJavaException(env, ctx, exception, rootObject.get());
-        return NULL;
+        return nullptr;
     }
     return WebCore::JSValue_to_Java_Object(result, env, ctx, rootObject.get());
 }
