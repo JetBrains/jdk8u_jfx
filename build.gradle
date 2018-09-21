@@ -3285,6 +3285,7 @@ project(":web") {
 
             doLast {
                 exec {
+                    mkdir "${webkitOutputDir}"
                     workingDir("$webkitOutputDir")
                     commandLine("perl", "$projectDir/src/main/native/Tools/Scripts/set-webkit-configuration", "--$webkitConfig")
                     environment(["WEBKIT_OUTPUTDIR" : webkitOutputDir])
