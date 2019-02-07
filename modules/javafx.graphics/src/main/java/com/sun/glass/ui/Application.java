@@ -141,7 +141,9 @@ public abstract class Application {
     // May be called on any thread.
     public static void run(final Runnable launchable) {
         if (application != null) {
-            throw new IllegalStateException("Application is already running");
+            if (launchable != null)
+                application._invokeLater(launchable);
+            return;
         }
         application = PlatformFactory.getPlatformFactory().createApplication();
         // each concrete Application should set the app name using its own platform mechanism:
