@@ -86,9 +86,9 @@ class SwingEvents {
         return abstractButton;
     }
 
-    static int getWheelRotation(MouseEvent e) {
+    static double getWheelRotation(MouseEvent e) {
         if (e instanceof MouseWheelEvent) {
-            return ((MouseWheelEvent)e).getWheelRotation();
+            return ((MouseWheelEvent)e).getPreciseWheelRotation();
         }
         return 0;
     }

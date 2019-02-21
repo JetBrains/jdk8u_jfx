@@ -404,10 +404,13 @@ public class JFXPanel extends JComponent {
         }
 
         if(e.getID() == MouseEvent.MOUSE_WHEEL) {
+            // [tav] smooth (quadratically) the multipliers as the scrolling fades (speed goes below 1.0)
+            double rotation = SwingEvents.getWheelRotation(e);
+            double mult = Math.abs(rotation) < 1 ? Math.pow(Math.abs(rotation) + 1, 2) * 10 : 40;
             scenePeer.scrollEvent(AbstractEvents.MOUSEEVENT_VERTICAL_WHEEL,
-                    0, -SwingEvents.getWheelRotation(e),
+                    0, -rotation,
                     0, 0, // total scroll
-                    40, 40, // multiplier
+                    mult, mult, // multiplier
                     e.getX(), e.getY(),
                     e.getXOnScreen(), e.getYOnScreen(),
                     (extModifiers & MouseEvent.SHIFT_DOWN_MASK) != 0,
