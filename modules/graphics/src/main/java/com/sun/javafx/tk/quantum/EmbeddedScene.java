@@ -238,7 +238,7 @@ final class EmbeddedScene extends GlassScene implements EmbeddedSceneInterface {
                            final boolean primaryBtnDown, final boolean middleBtnDown, final boolean secondaryBtnDown,
                            final int x, final int y, final int xAbs, final int yAbs,
                            final boolean shift, final boolean ctrl, final boolean alt, final boolean meta,
-                           final int wheelRotation, final boolean popupTrigger)
+                           final double wheelRotation, final boolean popupTrigger)
     {
         Platform.runLater(() -> {
             AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
@@ -248,7 +248,9 @@ final class EmbeddedScene extends GlassScene implements EmbeddedSceneInterface {
                 // Click events are generated in Scene, so we don't expect them here
                 assert type != AbstractEvents.MOUSEEVENT_CLICKED;
                 if (type == AbstractEvents.MOUSEEVENT_WHEEL) {
-                    sceneListener.scrollEvent(ScrollEvent.SCROLL, 0, -wheelRotation, 0, 0, 40.0, 40.0,
+                    // [tav] smooth (quadratically) the multiplier as the scrolling fades (speed goes below 1.0)
+                    double mult = Math.abs(wheelRotation) < 1 ? Math.pow(Math.abs(wheelRotation) + 1, 2) * 10 : 40;
+                    sceneListener.scrollEvent(ScrollEvent.SCROLL, 0, -wheelRotation, 0, 0, mult, mult,
                             0, 0, 0, 0, 0,
                             x, y, xAbs, yAbs, shift, ctrl, alt, meta, false, false);
                 } else {

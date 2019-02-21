@@ -65,7 +65,7 @@ public interface EmbeddedSceneInterface {
                            boolean primaryBtnDown, boolean middleBtnDown, boolean secondaryBtnDown,
                            int x, int y, int xAbs, int yAbs,
                            boolean shift, boolean ctrl, boolean alt, boolean meta,
-                           int wheelRotation, boolean popupTrigger);
+                           double wheelRotation, boolean popupTrigger);
     /*
      * A notification about key event received by host container.
      */
