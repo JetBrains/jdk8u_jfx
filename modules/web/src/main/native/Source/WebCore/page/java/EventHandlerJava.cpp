@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  */
 #include "config.h"
 
@@ -17,19 +17,14 @@
 
 namespace WebCore {
 
-double const EventHandler::TextDragDelay = 0;
+#if ENABLE(DRAG_SUPPORT)
+const Seconds EventHandler::TextDragDelay { 0_s };
+#endif
 
 OptionSet<PlatformEvent::Modifier> EventHandler::accessKeyModifiers()
 {
     return PlatformEvent::Modifier::AltKey;
 }
-
-#if ENABLE(DRAG_SUPPORT)
-Ref<DataTransfer> EventHandler::createDraggingDataTransfer() const
-{
-    return DataTransfer::createForDrag();
-}
-#endif
 
 void EventHandler::focusDocumentView()
 {
@@ -84,7 +79,7 @@ bool EventHandler::passWidgetMouseDownEventToWidget(const MouseEventWithHitTestR
     return false;
 }
 
-bool EventHandler::tabsToAllFormControls(KeyboardEvent&) const
+bool EventHandler::tabsToAllFormControls(KeyboardEvent*) const
 {
     return true;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2016 Igalia S.L.
+ * Copyright (C) 2014-2017 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -45,16 +45,6 @@ static inline bool isColumnSide(GridPositionSide side)
 static inline bool isStartSide(GridPositionSide side)
 {
     return side == ColumnStartSide || side == RowStartSide;
-}
-
-static inline GridPositionSide initialPositionSide(GridTrackSizingDirection direction)
-{
-    return direction == ForColumns ? ColumnStartSide : RowStartSide;
-}
-
-static inline GridPositionSide finalPositionSide(GridTrackSizingDirection direction)
-{
-    return direction == ForColumns ? ColumnEndSide : RowEndSide;
 }
 
 static inline GridTrackSizingDirection directionFromSide(GridPositionSide side)
@@ -171,10 +161,10 @@ static void adjustGridPositionsFromStyle(const RenderStyle& gridContainerStyle, 
 
     if (gridItem.isOutOfFlowPositioned()) {
         // Early detect the case of non existing named grid lines for positioned items.
-        if (initialPosition.isNamedGridArea() && !NamedLineCollection::isValidNamedLineOrArea(initialPosition.namedGridLine(), gridContainerStyle, initialPositionSide(direction)))
+        if (initialPosition.isNamedGridArea() && !NamedLineCollection::isValidNamedLineOrArea(initialPosition.namedGridLine(), gridContainerStyle, GridPositionsResolver::initialPositionSide(direction)))
             initialPosition.setAutoPosition();
 
-        if (finalPosition.isNamedGridArea() && !NamedLineCollection::isValidNamedLineOrArea(finalPosition.namedGridLine(), gridContainerStyle, finalPositionSide(direction)))
+        if (finalPosition.isNamedGridArea() && !NamedLineCollection::isValidNamedLineOrArea(finalPosition.namedGridLine(), gridContainerStyle, GridPositionsResolver::finalPositionSide(direction)))
             finalPosition.setAutoPosition();
     }
 
@@ -187,12 +177,12 @@ static void adjustGridPositionsFromStyle(const RenderStyle& gridContainerStyle, 
 
 unsigned GridPositionsResolver::explicitGridColumnCount(const RenderStyle& gridContainerStyle, unsigned autoRepeatTracksCount)
 {
-    return std::min<unsigned>(std::max(gridContainerStyle.gridColumns().size() + autoRepeatTracksCount, gridContainerStyle.namedGridAreaColumnCount()), kGridMaxTracks);
+    return std::min<unsigned>(std::max(gridContainerStyle.gridColumns().size() + autoRepeatTracksCount, gridContainerStyle.namedGridAreaColumnCount()), GridPosition::max());
 }
 
 unsigned GridPositionsResolver::explicitGridRowCount(const RenderStyle& gridContainerStyle, unsigned autoRepeatTracksCount)
 {
-    return std::min<unsigned>(std::max(gridContainerStyle.gridRows().size() + autoRepeatTracksCount, gridContainerStyle.namedGridAreaRowCount()), kGridMaxTracks);
+    return std::min<unsigned>(std::max(gridContainerStyle.gridRows().size() + autoRepeatTracksCount, gridContainerStyle.namedGridAreaRowCount()), GridPosition::max());
 }
 
 static unsigned explicitGridSizeForSide(const RenderStyle& gridContainerStyle, GridPositionSide side, unsigned autoRepeatTracksCount)
@@ -300,6 +290,16 @@ static GridSpan resolveGridPositionAgainstOppositePosition(const RenderStyle& gr
         return GridSpan::untranslatedDefiniteGridSpan(oppositeLine - positionOffset, oppositeLine);
 
     return GridSpan::untranslatedDefiniteGridSpan(oppositeLine, oppositeLine + positionOffset);
+}
+
+GridPositionSide GridPositionsResolver::initialPositionSide(GridTrackSizingDirection direction)
+{
+    return direction == ForColumns ? ColumnStartSide : RowStartSide;
+}
+
+GridPositionSide GridPositionsResolver::finalPositionSide(GridTrackSizingDirection direction)
+{
+    return direction == ForColumns ? ColumnEndSide : RowEndSide;
 }
 
 unsigned GridPositionsResolver::spanSizeForAutoPlacedItem(const RenderStyle& gridContainerStyle, const RenderBox& gridItem, GridTrackSizingDirection direction)

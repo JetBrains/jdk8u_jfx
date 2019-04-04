@@ -28,7 +28,6 @@
 
 #include "ExportMacros.h"
 #include <mutex>
-#include <wtf/Lock.h>
 
 
 // Define this flag to enable Stack stats collection. This feature is useful
@@ -121,7 +120,7 @@ public:
 
 private:
     // CheckPoint management:
-    static StaticLock s_sharedMutex;
+    static Lock s_sharedMutex;
     static CheckPoint* s_topCheckPoint;
     static LayoutCheckPoint* s_firstLayoutCheckPoint;
     static LayoutCheckPoint* s_topLayoutCheckPoint;

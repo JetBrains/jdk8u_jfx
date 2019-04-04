@@ -31,6 +31,7 @@
 #include "ApplePayPaymentRequest.h"
 #include "EventTarget.h"
 #include "ExceptionOr.h"
+#include "PaymentSession.h"
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 
@@ -48,12 +49,16 @@ class PaymentContact;
 class PaymentCoordinator;
 class PaymentMethod;
 class URL;
-
+enum class PaymentAuthorizationStatus;
 struct ApplePayLineItem;
 struct ApplePayPaymentRequest;
 struct ApplePayShippingMethod;
+struct ApplePayPaymentAuthorizationResult;
+struct ApplePayPaymentMethodUpdate;
+struct ApplePayShippingContactUpdate;
+struct ApplePayShippingMethodUpdate;
 
-class ApplePaySession final : public RefCounted<ApplePaySession>, public ActiveDOMObject, public EventTargetWithInlineData {
+class ApplePaySession final : public PaymentSession, public ActiveDOMObject, public EventTargetWithInlineData {
 public:
     static ExceptionOr<Ref<ApplePaySession>> create(Document&, unsigned version, ApplePayPaymentRequest&&);
     virtual ~ApplePaySession();
@@ -75,25 +80,24 @@ public:
     ExceptionOr<void> begin();
     ExceptionOr<void> abort();
     ExceptionOr<void> completeMerchantValidation(JSC::ExecState&, JSC::JSValue merchantSession);
+    ExceptionOr<void> completeShippingMethodSelection(ApplePayShippingMethodUpdate&&);
+    ExceptionOr<void> completeShippingContactSelection(ApplePayShippingContactUpdate&&);
+    ExceptionOr<void> completePaymentMethodSelection(ApplePayPaymentMethodUpdate&&);
+    ExceptionOr<void> completePayment(ApplePayPaymentAuthorizationResult&&);
+
+    // Old functions.
     ExceptionOr<void> completeShippingMethodSelection(unsigned short status, ApplePayLineItem&& newTotal, Vector<ApplePayLineItem>&& newLineItems);
     ExceptionOr<void> completeShippingContactSelection(unsigned short status, Vector<ApplePayShippingMethod>&& newShippingMethods, ApplePayLineItem&& newTotal, Vector<ApplePayLineItem>&& newLineItems);
     ExceptionOr<void> completePaymentMethodSelection(ApplePayLineItem&& newTotal, Vector<ApplePayLineItem>&& newLineItems);
     ExceptionOr<void> completePayment(unsigned short status);
 
-    const PaymentRequest& paymentRequest() const { return m_paymentRequest; }
+    const ApplePaySessionPaymentRequest& paymentRequest() const { return m_paymentRequest; }
 
-    void validateMerchant(const URL&);
-    void didAuthorizePayment(const Payment&);
-    void didSelectShippingMethod(const PaymentRequest::ShippingMethod&);
-    void didSelectShippingContact(const PaymentContact&);
-    void didSelectPaymentMethod(const PaymentMethod&);
-    void didCancelPayment();
-
-    using RefCounted<ApplePaySession>::ref;
-    using RefCounted<ApplePaySession>::deref;
+    using PaymentSession::ref;
+    using PaymentSession::deref;
 
 private:
-    ApplePaySession(Document&, PaymentRequest&&);
+    ApplePaySession(Document&, unsigned version, ApplePaySessionPaymentRequest&&);
 
     // ActiveDOMObject.
     const char* activeDOMObjectName() const override;
@@ -105,6 +109,15 @@ private:
     ScriptExecutionContext* scriptExecutionContext() const override { return ActiveDOMObject::scriptExecutionContext(); }
     void refEventTarget() override { ref(); }
     void derefEventTarget() override { deref(); }
+
+    // PaymentSession
+    unsigned version() const override;
+    void validateMerchant(const URL&) override;
+    void didAuthorizePayment(const Payment&) override;
+    void didSelectShippingMethod(const ApplePaySessionPaymentRequest::ShippingMethod&) override;
+    void didSelectShippingContact(const PaymentContact&) override;
+    void didSelectPaymentMethod(const PaymentMethod&) override;
+    void didCancelPaymentSession() override;
 
     PaymentCoordinator& paymentCoordinator() const;
 
@@ -127,6 +140,7 @@ private:
         ShippingMethodSelected,
         ShippingContactSelected,
         PaymentMethodSelected,
+        CancelRequested,
         Authorized,
         Completed,
 
@@ -140,7 +154,8 @@ private:
         ValidationComplete,
     } m_merchantValidationState { MerchantValidationState::Idle };
 
-    const PaymentRequest m_paymentRequest;
+    const ApplePaySessionPaymentRequest m_paymentRequest;
+    unsigned m_version;
 };
 
 }

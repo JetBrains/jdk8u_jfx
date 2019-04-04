@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -472,11 +472,11 @@ static HRESULT nReadPixelsHelper(
     JNIEnv *env, jlong context, jlong resource, jlong length,
     jobject buf, jarray pixelArray, jint cntW, jint cntH)
 {
-    BYTE *pixels = PBYTE( pixelArray ?
-            env->GetPrimitiveArrayCritical(pixelArray, 0) :
-            env->GetDirectBufferAddress(buf));
+    D3DContext *pCtx = (D3DContext*)jlong_to_ptr(context);
+    RETURN_STATUS_IF_NULL(pCtx, E_FAIL);
 
-    RETURN_STATUS_IF_NULL(pixels, E_OUTOFMEMORY);
+    D3DResource *pResource = (D3DResource*)jlong_to_ptr(resource);
+    RETURN_STATUS_IF_NULL(pResource, E_FAIL);
 
     // sanity check about we have enought memory
     // Since we are certain cntW and cntH are positive numbers
@@ -487,11 +487,11 @@ static HRESULT nReadPixelsHelper(
         return E_OUTOFMEMORY;
     }
 
-    D3DContext *pCtx = (D3DContext*)jlong_to_ptr(context);
-    RETURN_STATUS_IF_NULL(pCtx, E_FAIL);
+    BYTE *pixels = PBYTE( pixelArray ?
+            env->GetPrimitiveArrayCritical(pixelArray, 0) :
+            env->GetDirectBufferAddress(buf));
 
-    D3DResource *pResource = (D3DResource*)jlong_to_ptr(resource);
-    RETURN_STATUS_IF_NULL(pResource, E_FAIL);
+    RETURN_STATUS_IF_NULL(pixels, E_OUTOFMEMORY);
 
     HRESULT res = D3DResourceFactory_nReadPixels(pCtx, pResource, pixels, cntW, cntH);
 

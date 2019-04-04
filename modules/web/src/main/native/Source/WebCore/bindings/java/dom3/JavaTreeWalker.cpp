@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,7 +21,9 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
-*/
+ */
+
+#undef IMPL
 
 #include "config.h"
 
@@ -29,7 +31,7 @@
 #include <WebCore/Node.h>
 #include <WebCore/NodeFilter.h>
 #include <WebCore/TreeWalker.h>
-#include <WebCore/JSMainThreadExecState.h>
+#include <WebCore/JSExecState.h>
 
 #include <wtf/RefPtr.h>
 #include <wtf/GetPtr.h>
@@ -43,7 +45,7 @@ extern "C" {
 
 #define IMPL (static_cast<TreeWalker*>(jlong_to_ptr(peer)))
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_dispose(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_dispose(JNIEnv*, jclass, jlong peer)
 {
     IMPL->deref();
 }
@@ -56,7 +58,7 @@ JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_getRootImpl(JNIEn
     return JavaReturn<Node>(env, WTF::getPtr(IMPL->root()));
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_getWhatToShowImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_getWhatToShowImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->whatToShow();
@@ -68,7 +70,7 @@ JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_getFilterImpl(JNI
     return JavaReturn<NodeFilter>(env, WTF::getPtr(IMPL->filter()));
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_getExpandEntityReferencesImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_getExpandEntityReferencesImpl(JNIEnv*, jclass, jlong)
 {
     WebCore::JSMainThreadNullState state;
     return JNI_FALSE;
@@ -95,49 +97,84 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_setCurrentNodeImpl
 JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_parentNodeImpl(JNIEnv* env, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
-    return JavaReturn<Node>(env, WTF::getPtr(IMPL->parentNode()));
+
+    auto result = IMPL->parentNode();
+    if (result.hasException()) {
+        return {};
+    }
+    return JavaReturn<Node>(env, WTF::getPtr(result.releaseReturnValue()));
 }
 
 
 JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_firstChildImpl(JNIEnv* env, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
-    return JavaReturn<Node>(env, WTF::getPtr(IMPL->firstChild()));
+
+    auto result = IMPL->firstChild();
+    if (result.hasException()) {
+        return {};
+    }
+    return JavaReturn<Node>(env, WTF::getPtr(result.releaseReturnValue()));
 }
 
 
 JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_lastChildImpl(JNIEnv* env, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
-    return JavaReturn<Node>(env, WTF::getPtr(IMPL->lastChild()));
+
+    auto result = IMPL->lastChild();
+    if (result.hasException()) {
+        return {};
+    }
+    return JavaReturn<Node>(env, WTF::getPtr(result.releaseReturnValue()));
 }
 
 
 JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_previousSiblingImpl(JNIEnv* env, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
-    return JavaReturn<Node>(env, WTF::getPtr(IMPL->previousSibling()));
+
+    auto result = IMPL->previousSibling();
+    if (result.hasException()) {
+        return {};
+    }
+    return JavaReturn<Node>(env, WTF::getPtr(result.releaseReturnValue()));
 }
 
 
 JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_nextSiblingImpl(JNIEnv* env, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
-    return JavaReturn<Node>(env, WTF::getPtr(IMPL->nextSibling()));
+
+    auto result = IMPL->nextSibling();
+    if (result.hasException()) {
+        return {};
+    }
+    return JavaReturn<Node>(env, WTF::getPtr(result.releaseReturnValue()));
 }
 
 
 JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_previousNodeImpl(JNIEnv* env, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
-    return JavaReturn<Node>(env, WTF::getPtr(IMPL->previousNode()));
+
+    auto result = IMPL->previousNode();
+    if (result.hasException()) {
+        return {};
+    }
+    return JavaReturn<Node>(env, WTF::getPtr(result.releaseReturnValue()));
 }
 
 
 JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_TreeWalkerImpl_nextNodeImpl(JNIEnv* env, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
-    return JavaReturn<Node>(env, WTF::getPtr(IMPL->nextNode()));
+
+    auto result = IMPL->nextNode();
+    if (result.hasException()) {
+        return {};
+    }
+    return JavaReturn<Node>(env, WTF::getPtr(result.releaseReturnValue()));
 }
 
 

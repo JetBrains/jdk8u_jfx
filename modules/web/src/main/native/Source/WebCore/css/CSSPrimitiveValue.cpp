@@ -26,7 +26,6 @@
 #include "CSSFontFamily.h"
 #include "CSSHelper.h"
 #include "CSSMarkup.h"
-#include "CSSParserSelector.h"
 #include "CSSPrimitiveValueMappings.h"
 #include "CSSPropertyNames.h"
 #include "CSSToLengthConversionData.h"
@@ -35,15 +34,12 @@
 #include "Color.h"
 #include "Counter.h"
 #include "DeprecatedCSSOMPrimitiveValue.h"
-#include "ExceptionCode.h"
 #include "FontCascade.h"
 #include "Node.h"
 #include "Pair.h"
 #include "RGBColor.h"
 #include "Rect.h"
 #include "RenderStyle.h"
-#include "StyleSheetContents.h"
-#include <wtf/ASCIICType.h>
 #include <wtf/DecimalNumber.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>
@@ -54,9 +50,9 @@
 #include "DashboardRegion.h"
 #endif
 
-using namespace WTF;
 
 namespace WebCore {
+using namespace WTF;
 
 static inline bool isValidCSSUnitTypeForDoubleConversion(CSSPrimitiveValue::UnitType unitType)
 {
@@ -252,21 +248,21 @@ unsigned short CSSPrimitiveValue::primitiveType() const
         return m_primitiveUnitType;
 
     switch (m_value.calc->category()) {
-    case CalcNumber:
+    case CalculationCategory::Number:
         return CSSPrimitiveValue::CSS_NUMBER;
-    case CalcLength:
+    case CalculationCategory::Length:
         return CSSPrimitiveValue::CSS_PX;
-    case CalcPercent:
+    case CalculationCategory::Percent:
         return CSSPrimitiveValue::CSS_PERCENTAGE;
-    case CalcPercentNumber:
+    case CalculationCategory::PercentNumber:
         return CSSPrimitiveValue::CSS_CALC_PERCENTAGE_WITH_NUMBER;
-    case CalcPercentLength:
+    case CalculationCategory::PercentLength:
         return CSSPrimitiveValue::CSS_CALC_PERCENTAGE_WITH_LENGTH;
-    case CalcAngle:
-    case CalcTime:
-    case CalcFrequency:
+    case CalculationCategory::Angle:
+    case CalculationCategory::Time:
+    case CalculationCategory::Frequency:
         return m_value.calc->primitiveType();
-    case CalcOther:
+    case CalculationCategory::Other:
         return CSSPrimitiveValue::CSS_UNKNOWN;
     }
     return CSSPrimitiveValue::CSS_UNKNOWN;
@@ -285,7 +281,7 @@ static const AtomicString& valueName(CSSValueID valueID)
     ASSERT_ARG(valueID, valueID < numCSSValueKeywords);
 
     if (valueID < 0)
-        return nullAtom;
+        return nullAtom();
 
     static AtomicString* keywordStrings = new AtomicString[numCSSValueKeywords]; // Leaked intentionally.
     AtomicString& keywordString = keywordStrings[valueID];
@@ -395,11 +391,11 @@ void CSSPrimitiveValue::init(const Length& length)
         return;
     case MinContent:
         m_primitiveUnitType = CSS_VALUE_ID;
-        m_value.valueID = CSSValueWebkitMinContent;
+        m_value.valueID = CSSValueMinContent;
         return;
     case MaxContent:
         m_primitiveUnitType = CSS_VALUE_ID;
-        m_value.valueID = CSSValueWebkitMaxContent;
+        m_value.valueID = CSSValueMaxContent;
         return;
     case FillAvailable:
         m_primitiveUnitType = CSS_VALUE_ID;
@@ -407,7 +403,7 @@ void CSSPrimitiveValue::init(const Length& length)
         return;
     case FitContent:
         m_primitiveUnitType = CSS_VALUE_ID;
-        m_value.valueID = CSSValueWebkitFitContent;
+        m_value.valueID = CSSValueFitContent;
         return;
     case Percent:
         m_primitiveUnitType = CSS_PERCENTAGE;
@@ -644,6 +640,7 @@ double CSSPrimitiveValue::computeLengthDouble(const CSSToLengthConversionData& c
 double CSSPrimitiveValue::computeNonCalcLengthDouble(const CSSToLengthConversionData& conversionData, UnitType primitiveType, double value)
 {
     double factor;
+    bool applyZoom = true;
 
     switch (primitiveType) {
     case CSS_EMS:
@@ -696,15 +693,19 @@ double CSSPrimitiveValue::computeNonCalcLengthDouble(const CSSToLengthConversion
         return -1.0;
     case CSS_VH:
         factor = conversionData.viewportHeightFactor();
+        applyZoom = false;
         break;
     case CSS_VW:
         factor = conversionData.viewportWidthFactor();
+        applyZoom = false;
         break;
     case CSS_VMAX:
         factor = conversionData.viewportMaxFactor();
+        applyZoom = false;
         break;
     case CSS_VMIN:
         factor = conversionData.viewportMinFactor();
+        applyZoom = false;
         break;
     default:
         ASSERT_NOT_REACHED();
@@ -718,7 +719,10 @@ double CSSPrimitiveValue::computeNonCalcLengthDouble(const CSSToLengthConversion
     if (conversionData.computingFontSize() || isFontRelativeLength(primitiveType))
         return result;
 
-    return result * conversionData.zoom();
+    if (applyZoom)
+        result *= conversionData.zoom();
+
+    return result;
 }
 
 ExceptionOr<void> CSSPrimitiveValue::setFloatValue(unsigned short, double)
@@ -726,7 +730,7 @@ ExceptionOr<void> CSSPrimitiveValue::setFloatValue(unsigned short, double)
     // Keeping values immutable makes optimizations easier and allows sharing of the primitive value objects.
     // No other engine supports mutating style through this API. Computed style is always read-only anyway.
     // Supporting setter would require making primitive value copy-on-write and taking care of style invalidation.
-    return Exception { NO_MODIFICATION_ALLOWED_ERR };
+    return Exception { NoModificationAllowedError };
 }
 
 double CSSPrimitiveValue::conversionToCanonicalUnitsScaleFactor(UnitType unitType)
@@ -785,7 +789,7 @@ ExceptionOr<float> CSSPrimitiveValue::getFloatValue(unsigned short unitType) con
 {
     auto result = doubleValueInternal(static_cast<UnitType>(unitType));
     if (!result)
-        return Exception { INVALID_ACCESS_ERR };
+        return Exception { InvalidAccessError };
     return clampTo<float>(result.value());
 }
 
@@ -878,7 +882,7 @@ ExceptionOr<void> CSSPrimitiveValue::setStringValue(unsigned short, const String
     // Keeping values immutable makes optimizations easier and allows sharing of the primitive value objects.
     // No other engine supports mutating style through this API. Computed style is always read-only anyway.
     // Supporting setter would require making primitive value copy-on-write and taking care of style invalidation.
-    return Exception { NO_MODIFICATION_ALLOWED_ERR };
+    return Exception { NoModificationAllowedError };
 }
 
 ExceptionOr<String> CSSPrimitiveValue::getStringValue() const
@@ -895,7 +899,7 @@ ExceptionOr<String> CSSPrimitiveValue::getStringValue() const
     case CSS_PROPERTY_ID:
         return String { propertyName(m_value.propertyID).string() };
     default:
-        return Exception { INVALID_ACCESS_ERR };
+        return Exception { InvalidAccessError };
     }
 }
 
@@ -920,21 +924,21 @@ String CSSPrimitiveValue::stringValue() const
 ExceptionOr<Counter&> CSSPrimitiveValue::getCounterValue() const
 {
     if (m_primitiveUnitType != CSS_COUNTER)
-        return Exception { INVALID_ACCESS_ERR };
+        return Exception { InvalidAccessError };
     return *m_value.counter;
 }
 
 ExceptionOr<Rect&> CSSPrimitiveValue::getRectValue() const
 {
     if (m_primitiveUnitType != CSS_RECT)
-        return Exception { INVALID_ACCESS_ERR };
+        return Exception { InvalidAccessError };
     return *m_value.rect;
 }
 
 ExceptionOr<Ref<RGBColor>> CSSPrimitiveValue::getRGBColorValue() const
 {
     if (m_primitiveUnitType != CSS_RGBCOLOR)
-        return Exception { INVALID_ACCESS_ERR };
+        return Exception { InvalidAccessError };
 
     // FIXME: This should not return a new object for each invocation.
     return RGBColor::create(m_value.color->rgb());
@@ -1219,9 +1223,9 @@ bool CSSPrimitiveValue::equals(const CSSPrimitiveValue& other) const
     return false;
 }
 
-Ref<DeprecatedCSSOMPrimitiveValue> CSSPrimitiveValue::createDeprecatedCSSOMPrimitiveWrapper() const
+Ref<DeprecatedCSSOMPrimitiveValue> CSSPrimitiveValue::createDeprecatedCSSOMPrimitiveWrapper(CSSStyleDeclaration& styleDeclaration) const
 {
-    return DeprecatedCSSOMPrimitiveValue::create(*this);
+    return DeprecatedCSSOMPrimitiveValue::create(*this, styleDeclaration);
 }
 
 } // namespace WebCore

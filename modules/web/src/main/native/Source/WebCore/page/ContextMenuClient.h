@@ -27,7 +27,6 @@
 
 #if ENABLE(CONTEXT_MENUS)
 
-#include "ContextMenu.h"
 #include <wtf/Forward.h>
 
 namespace WebCore {
@@ -37,7 +36,7 @@ namespace WebCore {
 
     class ContextMenuClient {
     public:
-        virtual ~ContextMenuClient() {  }
+        virtual ~ContextMenuClient() = default;
         virtual void contextMenuDestroyed() = 0;
 
         virtual void downloadURL(const URL& url) = 0;

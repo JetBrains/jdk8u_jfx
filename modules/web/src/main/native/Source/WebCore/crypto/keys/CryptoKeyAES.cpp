@@ -28,8 +28,9 @@
 
 #if ENABLE(SUBTLE_CRYPTO)
 
+#include "CryptoAlgorithmAesKeyParams.h"
 #include "CryptoAlgorithmRegistry.h"
-#include "CryptoKeyDataOctetSequence.h"
+#include "ExceptionOr.h"
 #include "JsonWebKey.h"
 #include <wtf/text/Base64.h>
 #include <wtf/text/WTFString.h>
@@ -55,15 +56,12 @@ CryptoKeyAES::CryptoKeyAES(CryptoAlgorithmIdentifier algorithm, Vector<uint8_t>&
     ASSERT(isValidAESAlgorithm(algorithm));
 }
 
-CryptoKeyAES::~CryptoKeyAES()
-{
-}
+CryptoKeyAES::~CryptoKeyAES() = default;
 
 bool CryptoKeyAES::isValidAESAlgorithm(CryptoAlgorithmIdentifier algorithm)
 {
     return algorithm == CryptoAlgorithmIdentifier::AES_CTR
         || algorithm == CryptoAlgorithmIdentifier::AES_CBC
-        || algorithm == CryptoAlgorithmIdentifier::AES_CMAC
         || algorithm == CryptoAlgorithmIdentifier::AES_GCM
         || algorithm == CryptoAlgorithmIdentifier::AES_CFB
         || algorithm == CryptoAlgorithmIdentifier::AES_KW;
@@ -114,14 +112,20 @@ JsonWebKey CryptoKeyAES::exportJwk() const
     return result;
 }
 
-std::unique_ptr<KeyAlgorithm> CryptoKeyAES::buildAlgorithm() const
+ExceptionOr<size_t> CryptoKeyAES::getKeyLength(const CryptoAlgorithmParameters& parameters)
 {
-    return std::make_unique<AesKeyAlgorithm>(CryptoAlgorithmRegistry::singleton().name(algorithmIdentifier()), m_key.size() * 8);
+    auto& aesParameters = downcast<CryptoAlgorithmAesKeyParams>(parameters);
+    if (!lengthIsValid(aesParameters.length))
+        return Exception { OperationError };
+    return aesParameters.length;
 }
 
-std::unique_ptr<CryptoKeyData> CryptoKeyAES::exportData() const
+auto CryptoKeyAES::algorithm() const -> KeyAlgorithm
 {
-    return std::make_unique<CryptoKeyDataOctetSequence>(m_key);
+    CryptoAesKeyAlgorithm result;
+    result.name = CryptoAlgorithmRegistry::singleton().name(algorithmIdentifier());
+    result.length = m_key.size() * 8;
+    return result;
 }
 
 } // namespace WebCore

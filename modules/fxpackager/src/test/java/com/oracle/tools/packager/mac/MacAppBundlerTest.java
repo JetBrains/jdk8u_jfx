@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2014, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -442,6 +442,7 @@ public class MacAppBundlerTest {
     /**
      * Build signed smoke test and mark it as quarantined, skip if no keys present
      */
+    @Ignore("JDK-8193232")
     @Test
     public void quarantinedAppTest() throws IOException, ConfigException, UnsupportedPlatformException {
         AbstractBundler bundler = new MacAppBundler();
@@ -498,6 +499,7 @@ public class MacAppBundlerTest {
      *
      * All other values will be driven off of those two values.
      */
+    @Ignore("JDK-8193232")
     @Test
     public void minimumConfig() throws IOException, ConfigException, UnsupportedPlatformException {
         Bundler bundler = new MacAppBundler();
@@ -725,6 +727,7 @@ public class MacAppBundlerTest {
     /**
      * User a JRE instead of a JDK
      */
+    @Ignore("JDK-8193232")
     @Test
     public void testJRE() throws IOException, ConfigException, UnsupportedPlatformException {
         String jre = runtimeJre == null ? "/Library/Internet Plug-Ins/JavaAppletPlugin.plugin/" : runtimeJre;

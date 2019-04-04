@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,7 @@
 
 #include "CallFrame.h"
 #include "CodeBlock.h"
+#include "MachineContext.h"
 #include "VMInspector.h"
 #include <mutex>
 #include <wtf/StdLibExtras.h>
@@ -36,9 +37,7 @@
 #include "A64DOpcode.h"
 #endif
 
-#if HAVE(SIGNAL_H)
-#include <signal.h>
-#endif
+#include <wtf/threads/Signals.h>
 
 namespace JSC {
 
@@ -78,17 +77,27 @@ private:
 
 #endif // USE(OS_LOG)
 
-#if CPU(X86_64)
 struct SignalContext {
-    SignalContext(mcontext_t& mcontext)
-        : mcontext(mcontext)
-        , machinePC(reinterpret_cast<void*>(mcontext->__ss.__rip))
-        , stackPointer(reinterpret_cast<void*>(mcontext->__ss.__rsp))
-        , framePointer(reinterpret_cast<CallFrame*>(mcontext->__ss.__rbp))
+private:
+    SignalContext(PlatformRegisters& registers, MacroAssemblerCodePtr<PlatformRegistersPCPtrTag> machinePC)
+        : registers(registers)
+        , machinePC(machinePC)
+        , stackPointer(MachineContext::stackPointer(registers))
+        , framePointer(MachineContext::framePointer(registers))
     { }
+
+public:
+    static std::optional<SignalContext> tryCreate(PlatformRegisters& registers)
+    {
+        auto instructionPointer = MachineContext::instructionPointer(registers);
+        if (!instructionPointer)
+            return std::nullopt;
+        return SignalContext(registers, *instructionPointer);
+    }
 
     void dump()
     {
+#if CPU(X86_64)
 #define FOR_EACH_REGISTER(v) \
         v(rax) \
         v(rbx) \
@@ -113,118 +122,53 @@ struct SignalContext {
         v(gs)
 
 #define DUMP_REGISTER(__reg) \
-        log("Register " #__reg ": %p", reinterpret_cast<void*>(mcontext->__ss.__##__reg));
+        log("Register " #__reg ": %p", reinterpret_cast<void*>(registers.__##__reg));
         FOR_EACH_REGISTER(DUMP_REGISTER)
 #undef FOR_EACH_REGISTER
-    }
 
-    mcontext_t& mcontext;
-    void* machinePC;
-    void* stackPointer;
-    void* framePointer;
-};
-
-#elif CPU(ARM64)
-
-struct SignalContext {
-    SignalContext(mcontext_t& mcontext)
-        : mcontext(mcontext)
-        , machinePC(reinterpret_cast<void*>(mcontext->__ss.__pc))
-        , stackPointer(reinterpret_cast<void*>(mcontext->__ss.__sp))
-        , framePointer(reinterpret_cast<CallFrame*>(mcontext->__ss.__fp))
-    { }
-
-    void dump()
-    {
+#elif CPU(ARM64) && defined(__LP64__)
         int i;
         for (i = 0; i < 28; i += 4) {
             log("x%d: %016llx x%d: %016llx x%d: %016llx x%d: %016llx",
-                i, mcontext->__ss.__x[i],
-                i+1, mcontext->__ss.__x[i+1],
-                i+2, mcontext->__ss.__x[i+2],
-                i+3, mcontext->__ss.__x[i+3]);
+                i, registers.__x[i],
+                i+1, registers.__x[i+1],
+                i+2, registers.__x[i+2],
+                i+3, registers.__x[i+3]);
         }
         ASSERT(i < 29);
         log("x%d: %016llx fp: %016llx lr: %016llx",
-            i, mcontext->__ss.__x[i], mcontext->__ss.__fp, mcontext->__ss.__lr);
+            i, registers.__x[i],
+            MachineContext::framePointer<uint64_t>(registers),
+            MachineContext::linkRegister(registers).untaggedExecutableAddress<uint64_t>());
         log("sp: %016llx pc: %016llx cpsr: %08x",
-            mcontext->__ss.__sp, mcontext->__ss.__pc, mcontext->__ss.__cpsr);
-    }
-
-    mcontext_t& mcontext;
-    void* machinePC;
-    void* stackPointer;
-    void* framePointer;
-};
-
-#else
-
-struct SignalContext {
-    SignalContext(mcontext_t&) { }
-
-    void dump() { }
-
-    void* machinePC;
-    void* stackPointer;
-    void* framePointer;
-};
-
+            MachineContext::stackPointer<uint64_t>(registers),
+            machinePC.untaggedExecutableAddress<uint64_t>(),
+            registers.__cpsr);
 #endif
-
-struct sigaction originalSigIllAction;
-
-static void handleCrash(int signalNumber, siginfo_t* info, void* uap)
-{
-    SignalContext context(static_cast<ucontext_t*>(uap)->uc_mcontext);
-    SigillCrashAnalyzer& analyzer = SigillCrashAnalyzer::instance();
-    auto crashSource = analyzer.analyze(context);
-
-    auto originalAction = originalSigIllAction.sa_sigaction;
-    if (originalAction) {
-        // It is always safe to just invoke the original handler using the sa_sigaction form
-        // without checking for the SA_SIGINFO flag. If the original handler is of the
-        // sa_handler form, it will just ignore the 2nd and 3rd arguments since sa_handler is a
-        // subset of sa_sigaction. This is what the man pages says the OS does anyway.
-        originalAction(signalNumber, info, uap);
     }
 
-    if (crashSource == SigillCrashAnalyzer::CrashSource::JavaScriptCore) {
-        // Restore the default handler so that we can get a core dump.
-        struct sigaction defaultAction;
-        defaultAction.sa_handler = SIG_DFL;
-        sigfillset(&defaultAction.sa_mask);
-        defaultAction.sa_flags = 0;
-        sigaction(SIGILL, &defaultAction, nullptr);
-    } else if (!originalAction) {
-        // Pre-emptively restore the default handler but we may roll it back below.
-        struct sigaction currentAction;
-        struct sigaction defaultAction;
-        defaultAction.sa_handler = SIG_DFL;
-        sigfillset(&defaultAction.sa_mask);
-        defaultAction.sa_flags = 0;
-        sigaction(SIGILL, &defaultAction, &currentAction);
-
-        if (currentAction.sa_sigaction != handleCrash) {
-            // This means that there's a client handler installed after us. This also means
-            // that the client handler thinks it was able to recover from the SIGILL, and
-            // did not uninstall itself. We can't argue with this because the crash isn't
-            // known to be from a JavaScriptCore source. Hence, restore the client handler
-            // and keep going.
-            sigaction(SIGILL, &currentAction, nullptr);
-        }
-    }
-}
+    PlatformRegisters& registers;
+    MacroAssemblerCodePtr<PlatformRegistersPCPtrTag> machinePC;
+    void* stackPointer;
+    void* framePointer;
+};
 
 static void installCrashHandler()
 {
 #if CPU(X86_64) || CPU(ARM64)
-    struct sigaction action;
-    action.sa_sigaction = reinterpret_cast<void (*)(int, siginfo_t *, void *)>(handleCrash);
-    sigfillset(&action.sa_mask);
-    action.sa_flags = SA_SIGINFO;
-    sigaction(SIGILL, &action, &originalSigIllAction);
-#else
-    UNUSED_PARAM(handleCrash);
+    installSignalHandler(Signal::Ill, [] (Signal, SigInfo&, PlatformRegisters& registers) {
+        auto signalContext = SignalContext::tryCreate(registers);
+        if (!signalContext)
+            return SignalAction::NotHandled;
+
+        void* machinePC = signalContext->machinePC.untaggedExecutableAddress();
+        if (!isJITPC(machinePC))
+            return SignalAction::NotHandled;
+
+        SigillCrashAnalyzer& analyzer = SigillCrashAnalyzer::instance();
+        analyzer.analyze(*signalContext);
+        return SignalAction::NotHandled;
+    });
 #endif
 }
 
@@ -237,7 +181,7 @@ struct SignalContext {
 
     void dump() { }
 
-    void* machinePC;
+    MacroAssemblerCodePtr<PlatformRegistersPCPtrTag> machinePC;
     void* stackPointer;
     void* framePointer;
 };
@@ -289,7 +233,7 @@ auto SigillCrashAnalyzer::analyze(SignalContext& context) -> CrashSource
         }
         auto& locker = expectedLocker.value();
 
-        void* pc = context.machinePC;
+        void* pc = context.machinePC.untaggedExecutableAddress();
         auto isInJITMemory = inspector.isValidExecutableMemory(locker, pc);
         if (!isInJITMemory) {
             log("ERROR: Timed out: not able to determine if pc %p is in valid JIT executable memory", pc);
@@ -341,7 +285,7 @@ auto SigillCrashAnalyzer::analyze(SignalContext& context) -> CrashSource
 
 void SigillCrashAnalyzer::dumpCodeBlock(CodeBlock* codeBlock, void* machinePC)
 {
-#if CPU(ARM64)
+#if CPU(ARM64) && ENABLE(JIT)
     JITCode* jitCode = codeBlock->jitCode().get();
 
     // Dump the raw bits of the code.

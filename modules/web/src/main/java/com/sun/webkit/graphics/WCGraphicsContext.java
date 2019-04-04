@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -87,6 +87,7 @@ public abstract class WCGraphicsContext {
     public abstract void scale(float sx, float sy);
     public abstract void rotate(float radians);
 
+    public abstract void setPerspectiveTransform(WCTransform t);
     public abstract void setTransform(WCTransform t);
     public abstract WCTransform getTransform();
     public abstract void concatTransform(WCTransform t);

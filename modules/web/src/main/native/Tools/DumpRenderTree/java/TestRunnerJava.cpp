@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  */
 #include "config.h"
 #include "JavaEnv.h"
@@ -12,13 +12,6 @@
 #include <JavaScriptCore/JSStringRef.h>
 
 extern JSGlobalContextRef gContext;
-
-jclass getDRTClass(JNIEnv* env)
-{
-    static JGClass cls(env->FindClass("com/sun/javafx/webkit/drt/DumpRenderTree"));
-    ASSERT(cls);
-    return cls;
-}
 
 jstring JSStringRef_to_jstring(JSStringRef ref, JNIEnv* env)
 {
@@ -59,7 +52,9 @@ void TestRunner::clearAllDatabases()
 
 void TestRunner::clearBackForwardList()
 {
-    // FIXME: implement
+    JNIEnv* env = DumpRenderTree_GetJavaEnv();
+    env->CallStaticVoidMethod(getDumpRenderTreeClass(), getClearBackForwardListMID());
+    CheckAndClearException(env);
 }
 
 void TestRunner::clearPersistentUserStyleSheet()
@@ -89,6 +84,11 @@ void TestRunner::display()
     // FIXME: implement
 }
 
+void TestRunner::displayAndTrackRepaints()
+{
+    // FIXME: implement
+}
+
 void TestRunner::execCommand(JSStringRef name, JSStringRef value)
 {
     // FIXME: implement
@@ -108,22 +108,16 @@ void TestRunner::keepWebHistory()
 void TestRunner::notifyDone()
 {
     JNIEnv* env = DumpRenderTree_GetJavaEnv();
-
-    static jmethodID notifyDoneMID = env->GetStaticMethodID(getDRTClass(env), "notifyDone", "()V");
-    ASSERT(notifyDoneMID);
-    env->CallStaticVoidMethod(getDRTClass(env), notifyDoneMID);
+    env->CallStaticVoidMethod(getDumpRenderTreeClass(), getNotifyDoneMID());
     CheckAndClearException(env);
 }
 
 void TestRunner::overridePreference(JSStringRef key, JSStringRef value)
 {
     JNIEnv* env = DumpRenderTree_GetJavaEnv();
-
     JLString jRelKey(JSStringRef_to_jstring(key, env));
     JLString jRelValue(JSStringRef_to_jstring(value, env));
-    static jmethodID overridePreferenceMID = env->GetStaticMethodID(getDRTClass(env), "overridePreference", "(Ljava/lang/String;Ljava/lang/String;)V");
-    ASSERT(overridePreferenceMID);
-    env->CallStaticVoidMethod(getDRTClass(env), overridePreferenceMID, (jstring)jRelKey, (jstring)jRelValue);
+    env->CallStaticVoidMethod(getDumpRenderTreeClass(), getOverridePreferenceMID(), (jstring)jRelKey, (jstring)jRelValue);
     CheckAndClearException(env);
 }
 
@@ -141,9 +135,7 @@ JSStringRef TestRunner::pathToLocalResource(JSContextRef context, JSStringRef ur
 size_t TestRunner::webHistoryItemCount()
 {
     JNIEnv* env = DumpRenderTree_GetJavaEnv();
-    static jmethodID getBackForwardItemCountMID = env->GetStaticMethodID(getDRTClass(env), "getBackForwardItemCount", "()I");
-    ASSERT(getBackForwardItemCountMID);
-    jint count = env->CallStaticIntMethod(getDRTClass(env), getBackForwardItemCountMID);
+    jint count = env->CallStaticIntMethod(getDumpRenderTreeClass(), getGetBackForwardItemCountMID());
     CheckAndClearException(env);
     return (size_t)count;
 }
@@ -151,17 +143,10 @@ size_t TestRunner::webHistoryItemCount()
 void TestRunner::queueLoad(JSStringRef url, JSStringRef target)
 {
     JNIEnv* env = DumpRenderTree_GetJavaEnv();
-
     JLString jRelUrl(JSStringRef_to_jstring(url, env));
-
-    static jmethodID resolveUrlMID = env->GetStaticMethodID(getDRTClass(env), "resolveURL", "(Ljava/lang/String;)Ljava/lang/String;");
-    ASSERT(resolveUrlMID);
-
-    JLString jAbsUrl((jstring)env->CallStaticObjectMethod(getDRTClass(env), resolveUrlMID, (jstring)jRelUrl));
+    JLString jAbsUrl((jstring)env->CallStaticObjectMethod(getDumpRenderTreeClass(), getResolveURLMID(), (jstring)jRelUrl));
     CheckAndClearException(env);
-
     JSStringRef absUrlRef = jstring_to_JSStringRef((jstring)jAbsUrl, env);
-
     WorkQueue::singleton().queue(new LoadItem(absUrlRef, target));
 }
 
@@ -210,10 +195,7 @@ void TestRunner::setMainFrameIsFirstResponder(bool enabled)
     // FIXME: implement
 }
 
-void TestRunner::setMockGeolocationPosition(double latitude, double longitude, double accuracy,
-    bool canProvideAltitude, double altitude, bool canProvideAltitudeAccuracy,
-    double altitudeAccuracy, bool canProvideHeading, double heading,
-    bool canProvideSpeed, double speed)
+void TestRunner::setMockGeolocationPosition(double latitude, double longitude, double accuracy, bool providesAltitude, double altitude, bool providesAltitudeAccuracy, double altitudeAccuracy, bool providesHeading, double heading, bool providesSpeed, double speed, bool providesFloorLevel, double floorLevel)
 {
     // FIXME: implement
 }
@@ -291,9 +273,7 @@ void TestRunner::setWaitToDump(bool waitUntilDone)
         return;
     }
 
-    static jmethodID notifyDoneMID = env->GetStaticMethodID(getDRTClass(env), "waitUntilDone", "()V");
-    ASSERT(notifyDoneMID);
-    env->CallStaticVoidMethod(getDRTClass(env), notifyDoneMID);
+    env->CallStaticVoidMethod(getDumpRenderTreeClass(), getWaitUntillDoneMethodId());
     CheckAndClearException(env);
 }
 
@@ -407,8 +387,12 @@ void TestRunner::setDomainRelaxationForbiddenForURLScheme(bool,JSStringRef) {
     //FIXME: implement
 }
 
-void TestRunner::setJavaScriptCanAccessClipboard(bool) {
-    //FIXME: implement
+void TestRunner::setJavaScriptCanAccessClipboard(bool enable) {
+    JSStringRef webkitJavaScriptCanAccessClipboard = JSStringCreateWithUTF8CString("WebKitJavaScriptCanAccessClipboardPreferenceKey");
+    JSStringRef value = JSStringCreateWithUTF8CString(enable ? "1" : "0");
+    overridePreference(webkitJavaScriptCanAccessClipboard, value);
+    JSStringRelease(webkitJavaScriptCanAccessClipboard);
+    JSStringRelease(value);
 }
 
 void TestRunner::setPluginsEnabled(bool) {
@@ -452,11 +436,6 @@ void TestRunner::setMockDeviceOrientation(bool canProvideAlpha, double alpha, bo
 {
     // FIXME: Implement for DeviceOrientation layout tests.
     // See https://bugs.webkit.org/show_bug.cgi?id=30335.
-}
-
-void TestRunner::setViewModeMediaFeature(JSStringRef mode)
-{
-    // FIXME: implement
 }
 
 int TestRunner::numberOfPendingGeolocationPermissionRequests()
@@ -593,4 +572,14 @@ unsigned TestRunner::imageCountInGeneralPasteboard() const
 {
     fprintf(testResult, "ERROR: TestRunner::imageCountInGeneralPasteboard() not implemented\n");
     return 0;
+}
+
+void TestRunner::forceImmediateCompletion()
+{
+    fprintf(testResult, "ERROR: TestRunner::forceImmediateCompletion() not implemented\n");
+}
+
+void TestRunner::setSpellCheckerResults(JSContextRef, JSObjectRef)
+{
+    fprintf(testResult, "ERROR: TestRunner::setSpellCheckerResults() not implemented\n");
 }

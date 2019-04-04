@@ -27,7 +27,9 @@
 #include "config.h"
 #include "HTMLDocumentParser.h"
 
+#include "CustomElementReactionQueue.h"
 #include "DocumentFragment.h"
+#include "DocumentLoader.h"
 #include "Frame.h"
 #include "HTMLDocument.h"
 #include "HTMLParserScheduler.h"
@@ -36,7 +38,11 @@
 #include "HTMLTreeBuilder.h"
 #include "HTMLUnknownElement.h"
 #include "JSCustomElementInterface.h"
+#include "LinkLoader.h"
+#include "Microtasks.h"
+#include "NavigationScheduler.h"
 #include "ScriptElement.h"
+#include "ThrowOnDynamicMarkupInsertionCountIncrementer.h"
 
 namespace WebCore {
 
@@ -145,6 +151,16 @@ inline bool HTMLDocumentParser::shouldDelayEnd() const
     return inPumpSession() || isWaitingForScripts() || isScheduledForResume() || isExecutingScript();
 }
 
+void HTMLDocumentParser::didBeginYieldingParser()
+{
+    m_parserScheduler->didBeginYieldingParser();
+}
+
+void HTMLDocumentParser::didEndYieldingParser()
+{
+    m_parserScheduler->didEndYieldingParser();
+}
+
 bool HTMLDocumentParser::isParsingFragment() const
 {
     return m_treeBuilder->isParsingFragment();
@@ -195,9 +211,17 @@ void HTMLDocumentParser::runScriptsForPausedTreeBuilder()
         ASSERT(!m_treeBuilder->hasParserBlockingScriptWork());
 
         // https://html.spec.whatwg.org/#create-an-element-for-the-token
-        auto& elementInterface = constructionData->elementInterface.get();
-        auto newElement = elementInterface.constructElementWithFallback(*document(), constructionData->name);
-        m_treeBuilder->didCreateCustomOrCallbackElement(WTFMove(newElement), *constructionData);
+        {
+            // Prevent document.open/write during reactions by allocating the incrementer before the reactions stack.
+            ThrowOnDynamicMarkupInsertionCountIncrementer incrementer(*document());
+
+            MicrotaskQueue::mainThreadQueue().performMicrotaskCheckpoint();
+
+            CustomElementReactionStack reactionStack(document()->execState());
+            auto& elementInterface = constructionData->elementInterface.get();
+            auto newElement = elementInterface.constructElementWithFallback(*document(), constructionData->name);
+            m_treeBuilder->didCreateCustomOrFallbackElement(WTFMove(newElement), *constructionData);
+        }
         return;
     }
 
@@ -295,6 +319,9 @@ void HTMLDocumentParser::pumpTokenizer(SynchronousMode mode)
         }
         m_preloadScanner->scan(*m_preloader, *document());
     }
+    // The viewport definition is known here, so we can load link preloads with media attributes.
+    if (document()->loader())
+        LinkLoader::loadLinksFromHeader(document()->loader()->response().httpHeaderField(HTTPHeaderName::Link), document()->url(), *document(), LinkLoader::MediaAttributeCheck::MediaAttributeNotEmpty);
 }
 
 void HTMLDocumentParser::constructTreeFromHTMLToken(HTMLTokenizer::TokenPtr& rawToken)
@@ -396,7 +423,7 @@ void HTMLDocumentParser::end()
     ASSERT(!isDetached());
     ASSERT(!isScheduledForResume());
 
-    // Informs the the rest of WebCore that parsing is really finished (and deletes this).
+    // Informs the rest of WebCore that parsing is really finished (and deletes this).
     m_treeBuilder->finished();
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,7 +31,6 @@ import com.sun.javafx.webkit.ThemeClientImpl;
 import com.sun.webkit.*;
 import com.sun.webkit.graphics.*;
 
-import static com.sun.webkit.network.URLs.newURL;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -44,6 +43,7 @@ import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.logging.FileHandler;
 import java.util.logging.Formatter;
@@ -51,6 +51,7 @@ import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import javafx.scene.web.WebEngine;
+import static com.sun.webkit.network.URLs.newURL;
 
 public final class DumpRenderTree {
     private final static Logger log = Logger.getLogger("DumpRenderTree");
@@ -71,7 +72,7 @@ public final class DumpRenderTree {
 
     private final WebPage webPage;
     private final UIClientImpl uiClient;
-    private final EventSender eventSender;
+    private EventSender eventSender;
 
     private CountDownLatch latch;
     private String testPath;
@@ -79,7 +80,7 @@ public final class DumpRenderTree {
     private boolean waiting;
     private boolean complete;
 
-    class ThemeClientImplStub extends ThemeClient {
+    static class ThemeClientImplStub extends ThemeClient {
         @Override
         protected RenderTheme createRenderTheme() {
             return new RenderThemeStub();
@@ -91,7 +92,7 @@ public final class DumpRenderTree {
         }
     };
 
-    class RenderThemeStub extends RenderTheme {
+    static class RenderThemeStub extends RenderTheme {
         @Override
         protected Ref createWidget(long id, int widgetIndex, int state, int w, int h, int bgColor, ByteBuffer extParams) {
             return null;
@@ -117,7 +118,7 @@ public final class DumpRenderTree {
         }
     }
 
-    class ScrollBarThemeStub extends ScrollBarTheme {
+    static class ScrollBarThemeStub extends ScrollBarTheme {
         @Override
         protected Ref createWidget(long id, int w, int h, int orientation, int value, int visibleSize, int totalSize) {
             return null;
@@ -142,10 +143,8 @@ public final class DumpRenderTree {
         webPage = new WebPage(new WebPageClientImpl(), uiClient, null, null,
                               new ThemeClientImplStub(), false);
         uiClient.setWebPage(webPage);
-        eventSender = new EventSender(webPage);
 
         webPage.setBounds(0, 0, 800, 600);
-        webPage.setUsePageCache(true);
         webPage.setDeveloperExtrasEnabled(true);
         webPage.addLoadListenerClient(new DRTLoadListener());
 
@@ -185,18 +184,36 @@ public final class DumpRenderTree {
         PlatformImpl.startup(() -> {
             new WebEngine();    // initialize Webkit classes
             System.loadLibrary("DumpRenderTreeJava");
-            PageCache.setCapacity(1);
             drt = new DumpRenderTree();
+            PageCache.setCapacity(1);
             latch.countDown();
         });
         // wait for libraries to load
         latch.await();
     }
 
-    private void reset() {
-        mlog("reset");
+    boolean complete() { return this.complete; }
+
+    private void resetToConsistentStateBeforeTesting(final TestOptions options) {
+        // First disable all supported TestOptions
+        webPage.overridePreference("enableWebAnimationsCSSIntegration", "false");
+        webPage.overridePreference("enableColorFilter", "false");
+        webPage.overridePreference("enableIntersectionObserver", "false");
+        // Enable features based on TestOption
+        for (Map.Entry<String, String> option : options.getOptions().entrySet()) {
+            webPage.overridePreference(option.getKey(), option.getValue());
+        }
         // Reset native objects associated with WebPage
         webPage.resetToConsistentStateBeforeTesting();
+    }
+
+    private void reset(final TestOptions options) {
+        mlog("reset");
+        // create new EventSender for each test
+        eventSender = new EventSender(webPage);
+        resetToConsistentStateBeforeTesting(options);
+        // Clear frame name
+        webPage.reset(webPage.getMainFrame());
         // Reset zoom factors
         webPage.setZoomFactor(1.0f, true);
         webPage.setZoomFactor(1.0f, false);
@@ -217,7 +234,9 @@ public final class DumpRenderTree {
         } catch (MalformedURLException ex) {
             file = "file:///" + file;
         }
-        reset();
+        // parse test options from the html test header
+        final TestOptions options = new TestOptions(file);
+        reset(options);
         webPage.open(mainFrame, file);
         mlog("}runTest");
     }
@@ -231,7 +250,7 @@ public final class DumpRenderTree {
         l.await();
         Invoker.getInvoker().invokeOnEventThread(() -> {
             mlog("dispose");
-            // drt.uiClient.closePage();
+            webPage.stop();
             dispose();
         });
     }
@@ -324,6 +343,7 @@ public final class DumpRenderTree {
     private static native boolean dumpAsText();
     private static native boolean dumpChildFramesAsText();
     private static native boolean dumpBackForwardList();
+    protected static native boolean shouldStayOnPageAfterHandlingBeforeUnload();
 
     private final class DRTLoadListener implements LoadListenerClient {
         @Override
@@ -438,6 +458,11 @@ public final class DumpRenderTree {
         return drt.getBackForwardList().size();
     }
 
+    // called from native
+    private static void clearBackForwardList() {
+        drt.getBackForwardList().clearBackForwardListForDRT();
+    }
+
     private static final String TEST_DIR_NAME = "LayoutTests";
     private static final int TEST_DIR_LEN = TEST_DIR_NAME.length();
     private static final String CUR_ITEM_STR = "curr->";
@@ -537,7 +562,7 @@ public final class DumpRenderTree {
 
         @Override
         public WCRectangle getScreenBounds(boolean available) {
-            return null;
+            return new WCRectangle(0, 0, 800, 600);
         }
 
         @Override
@@ -574,6 +599,9 @@ public final class DumpRenderTree {
         public void addMessageToConsole(String message, int lineNumber,
                                         String sourceId)
         {
+            if (complete) {
+                return;
+            }
             if (!message.isEmpty()) {
                 int pos = message.indexOf("file://");
                 if (pos != -1) {
@@ -597,8 +625,10 @@ public final class DumpRenderTree {
         @Override
         public void didClearWindowObject(long context, long windowObject) {
             mlog("didClearWindowObject");
-            DumpRenderTree.didClearWindowObject(context, windowObject,
-                                                eventSender);
+            if (eventSender != null) {
+                DumpRenderTree.didClearWindowObject(context, windowObject,
+                                                    eventSender);
+            }
         }
     }
 }

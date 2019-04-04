@@ -30,8 +30,8 @@
 
 #include "Document.h"
 #include "EventNames.h"
-#include "ExceptionCode.h"
 #include "FileSystem.h"
+#include "Page.h"
 #include "SecurityOriginData.h"
 #include "Settings.h"
 #include "WebKitMediaKeyError.h"
@@ -85,7 +85,7 @@ const String& WebKitMediaKeySession::sessionId() const
 void WebKitMediaKeySession::generateKeyRequest(const String& mimeType, Ref<Uint8Array>&& initData)
 {
     m_pendingKeyRequests.append({ mimeType, WTFMove(initData) });
-    m_keyRequestTimer.startOneShot(0);
+    m_keyRequestTimer.startOneShot(0_s);
 }
 
 void WebKitMediaKeySession::keyRequestTimerFired()
@@ -135,14 +135,14 @@ ExceptionOr<void> WebKitMediaKeySession::update(Ref<Uint8Array>&& key)
 {
     // From <http://dvcs.w3.org/hg/html-media/raw-file/tip/encrypted-media/encrypted-media.html#dom-addkey>:
     // The addKey(key) method must run the following steps:
-    // 1. If the first or second argument [sic] is an empty array, throw an INVALID_ACCESS_ERR.
+    // 1. If the first or second argument [sic] is an empty array, throw an InvalidAccessError.
     // NOTE: the reference to a "second argument" is a spec bug.
     if (!key->length())
-        return Exception { INVALID_ACCESS_ERR };
+        return Exception { InvalidAccessError };
 
     // 2. Schedule a task to handle the call, providing key.
     m_pendingKeys.append(WTFMove(key));
-    m_addKeyTimer.startOneShot(0);
+    m_addKeyTimer.startOneShot(0_s);
 
     return { };
 }
@@ -179,7 +179,7 @@ void WebKitMediaKeySession::addKeyTimerFired()
 
         // 2.7. If did store key is true, queue a task to fire a simple event named keyadded at the MediaKeySession object.
         if (didStoreKey) {
-            auto keyaddedEvent = Event::create(eventNames().webkitkeyaddedEvent, false, false);
+            auto keyaddedEvent = Event::create(eventNames().webkitkeyaddedEvent, Event::CanBubble::No, Event::IsCancelable::No);
             keyaddedEvent->setTarget(this);
             m_asyncEventQueue.enqueueEvent(WTFMove(keyaddedEvent));
 
@@ -212,7 +212,7 @@ void WebKitMediaKeySession::sendError(MediaKeyErrorCode errorCode, uint32_t syst
 {
     m_error = WebKitMediaKeyError::create(errorCode, systemCode);
 
-    auto keyerrorEvent = Event::create(eventNames().webkitkeyerrorEvent, false, false);
+    auto keyerrorEvent = Event::create(eventNames().webkitkeyerrorEvent, Event::CanBubble::No, Event::IsCancelable::No);
     keyerrorEvent->setTarget(this);
     m_asyncEventQueue.enqueueEvent(WTFMove(keyerrorEvent));
 }
@@ -223,11 +223,15 @@ String WebKitMediaKeySession::mediaKeysStorageDirectory() const
     if (!document)
         return emptyString();
 
+    auto* page = document->page();
+    if (!page || page->usesEphemeralSession())
+        return emptyString();
+
     auto storageDirectory = document->settings().mediaKeysStorageDirectory();
     if (storageDirectory.isEmpty())
         return emptyString();
 
-    return pathByAppendingComponent(storageDirectory, SecurityOriginData::fromSecurityOrigin(document->securityOrigin()).databaseIdentifier());
+    return FileSystem::pathByAppendingComponent(storageDirectory, document->securityOrigin().data().databaseIdentifier());
 }
 
 bool WebKitMediaKeySession::hasPendingActivity() const
@@ -235,8 +239,19 @@ bool WebKitMediaKeySession::hasPendingActivity() const
     return (m_keys && m_session) || m_asyncEventQueue.hasPendingEvents();
 }
 
+void WebKitMediaKeySession::suspend(ReasonForSuspension)
+{
+    ASSERT_NOT_REACHED();
+}
+
+void WebKitMediaKeySession::resume()
+{
+    ASSERT_NOT_REACHED();
+}
+
 void WebKitMediaKeySession::stop()
 {
+    m_asyncEventQueue.close();
     close();
 }
 

@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include "DecodingOptions.h"
 #include "FormNamedItem.h"
 #include "GraphicsTypes.h"
 #include "HTMLElement.h"
@@ -31,10 +32,12 @@
 namespace WebCore {
 
 class HTMLFormElement;
+class HTMLMapElement;
 
 struct ImageCandidate;
 
 class HTMLImageElement : public HTMLElement, public FormNamedItem {
+    WTF_MAKE_ISO_ALLOCATED(HTMLImageElement);
     friend class HTMLFormElement;
 public:
     static Ref<HTMLImageElement> create(Document&);
@@ -61,6 +64,7 @@ public:
     void setLoadManually(bool loadManually) { m_imageLoader.setLoadManually(loadManually); }
 
     bool matchesUsemap(const AtomicStringImpl&) const;
+    HTMLMapElement* associatedMapElement() const;
 
     WEBCORE_EXPORT const AtomicString& alt() const;
 
@@ -79,6 +83,10 @@ public:
 
     WEBCORE_EXPORT bool complete() const;
 
+    DecodingMode decodingMode() const;
+
+    WEBCORE_EXPORT void decode(Ref<DeferredPromise>&&);
+
 #if PLATFORM(IOS)
     bool willRespondToMouseClickEvents() override;
 #endif
@@ -94,10 +102,14 @@ public:
     HTMLPictureElement* pictureElement() const;
     void setPictureElement(HTMLPictureElement*);
 
+#if USE(SYSTEM_PREVIEW)
+    WEBCORE_EXPORT bool isSystemPreviewImage() const;
+#endif
+
 protected:
     HTMLImageElement(const QualifiedName&, Document&, HTMLFormElement* = 0);
 
-    void didMoveToNewDocument(Document& oldDocument) override;
+    void didMoveToNewDocument(Document& oldDocument, Document& newDocument) override;
 
 private:
     void parseAttribute(const QualifiedName&, const AtomicString&) override;
@@ -118,8 +130,8 @@ private:
 
     void addSubresourceAttributeURLs(ListHashSet<URL>&) const override;
 
-    InsertionNotificationRequest insertedInto(ContainerNode&) override;
-    void removedFrom(ContainerNode&) override;
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
+    void removedFromAncestor(RemovalType, ContainerNode&) override;
 
     bool isFormAssociatedElement() const final { return false; }
     FormNamedItem* asFormNamedItem() final { return this; }

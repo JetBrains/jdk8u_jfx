@@ -26,12 +26,11 @@
 #include "config.h"
 #include "ResourceTimingInformation.h"
 
-#if ENABLE(WEB_TIMING)
-
 #include "CachedResource.h"
 #include "DOMWindow.h"
 #include "Document.h"
 #include "Frame.h"
+#include "FrameLoader.h"
 #include "HTMLFrameOwnerElement.h"
 #include "LoadTiming.h"
 #include "Performance.h"
@@ -71,7 +70,7 @@ void ResourceTimingInformation::addResourceTiming(CachedResource& resource, Docu
         return;
 
     Document* initiatorDocument = &document;
-    if (resource.type() == CachedResource::MainResource)
+    if (resource.type() == CachedResource::Type::MainResource && document.frame() && document.frame()->loader().shouldReportResourceTimingToParentFrame())
         initiatorDocument = document.parentDocument();
     if (!initiatorDocument)
         return;
@@ -92,7 +91,7 @@ void ResourceTimingInformation::storeResourceTimingInitiatorInformation(const Ca
     ASSERT(RuntimeEnabledFeatures::sharedFeatures().resourceTimingEnabled());
     ASSERT(resource.get());
 
-    if (resource->type() == CachedResource::MainResource) {
+    if (resource->type() == CachedResource::Type::MainResource) {
         // <iframe>s should report the initial navigation requested by the parent document, but not subsequent navigations.
         ASSERT(frame);
         if (frame->ownerElement()) {
@@ -106,5 +105,3 @@ void ResourceTimingInformation::storeResourceTimingInitiatorInformation(const Ca
 }
 
 }
-
-#endif // ENABLE(WEB_TIMING)

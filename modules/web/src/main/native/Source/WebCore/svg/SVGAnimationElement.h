@@ -24,7 +24,6 @@
 
 #pragma once
 
-#include "SMILTime.h"
 #include "SVGAnimatedBoolean.h"
 #include "SVGExternalResourcesRequired.h"
 #include "SVGSMILElement.h"
@@ -53,7 +52,8 @@ enum AnimatedPropertyValueType { RegularPropertyValue, CurrentColorValue, Inheri
 
 enum class CalcMode { Discrete, Linear, Paced, Spline };
 
-class SVGAnimationElement : public SVGSMILElement, public SVGTests, public SVGExternalResourcesRequired {
+class SVGAnimationElement : public SVGSMILElement, public SVGExternalResourcesRequired, public SVGTests {
+    WTF_MAKE_ISO_ALLOCATED(SVGAnimationElement);
 public:
     float getStartTime() const;
     float getCurrentTime() const;
@@ -146,13 +146,12 @@ public:
             animatedNumber = number;
     }
 
-    // SVGTests
-    Ref<SVGStringList> requiredFeatures();
-    Ref<SVGStringList> requiredExtensions();
-    Ref<SVGStringList> systemLanguage();
-
 protected:
     SVGAnimationElement(const QualifiedName&, Document&);
+
+    using AttributeOwnerProxy = SVGAttributeOwnerProxyImpl<SVGAnimationElement, SVGElement, SVGExternalResourcesRequired, SVGTests>;
+    static AttributeOwnerProxy::AttributeRegistry& attributeRegistry() { return AttributeOwnerProxy::attributeRegistry(); }
+    const SVGAttributeOwnerProxy& attributeOwnerProxy() const override { return m_attributeOwnerProxy; }
 
     void computeCSSPropertyValue(SVGElement*, CSSPropertyID, String& value);
     virtual void determinePropertyValueTypes(const String& from, const String& to);
@@ -208,15 +207,6 @@ private:
     void applyAnimatedValue(ShouldApplyAnimation, SVGElement* targetElement, const QualifiedName& attributeName, SVGAnimatedType*);
     void adjustForInheritance(SVGElement* targetElement, const QualifiedName& attributeName, String&);
 
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGAnimationElement)
-        DECLARE_ANIMATED_BOOLEAN_OVERRIDE(ExternalResourcesRequired, externalResourcesRequired)
-    END_DECLARE_ANIMATED_PROPERTIES
-
-    // SVGTests
-    void synchronizeRequiredFeatures() final { SVGTests::synchronizeRequiredFeatures(*this); }
-    void synchronizeRequiredExtensions() final { SVGTests::synchronizeRequiredExtensions(*this); }
-    void synchronizeSystemLanguage() final { SVGTests::synchronizeSystemLanguage(*this); }
-
     void setCalcMode(const AtomicString&);
 
     bool m_animationValid { false };
@@ -231,6 +221,7 @@ private:
     bool m_hasInvalidCSSAttributeType { false };
     CalcMode m_calcMode { CalcMode::Linear };
     AnimationMode m_animationMode { NoAnimation };
+    AttributeOwnerProxy m_attributeOwnerProxy { *this };
 };
 
 } // namespace WebCore

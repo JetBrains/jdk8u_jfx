@@ -133,17 +133,18 @@ void RemoteInspector::updateClientCapabilities()
         m_clientCapabilities = std::nullopt;
     else {
         RemoteInspector::Client::Capabilities updatedCapabilities = {
-            m_client->remoteAutomationAllowed() // remoteAutomationAllowed
+            m_client->remoteAutomationAllowed(),
+            m_client->browserName(),
+            m_client->browserVersion()
         };
 
         m_clientCapabilities = updatedCapabilities;
     }
 }
 
-void RemoteInspector::setRemoteInspectorClient(RemoteInspector::Client* client)
+void RemoteInspector::setClient(RemoteInspector::Client* client)
 {
-    ASSERT_ARG(client, client);
-    ASSERT(!m_client);
+    ASSERT((m_client && !client) || (!m_client && client));
 
     {
         std::lock_guard<Lock> lock(m_mutex);
@@ -207,6 +208,26 @@ TargetListing RemoteInspector::listingForTarget(const RemoteControllableTarget& 
     return nullptr;
 }
 
+void RemoteInspector::updateTargetListing(unsigned targetIdentifier)
+{
+    auto target = m_targetMap.get(targetIdentifier);
+    if (!target)
+        return;
+
+    updateTargetListing(*target);
+}
+
+void RemoteInspector::updateTargetListing(const RemoteControllableTarget& target)
+{
+    auto targetListing = listingForTarget(target);
+    if (!targetListing)
+        return;
+
+    m_targetListingMap.set(target.targetIdentifier(), targetListing);
+
+    pushListingsSoon();
+}
+
 void RemoteInspector::updateHasActiveDebugSession()
 {
     bool hasActiveDebuggerSession = !m_targetConnectionMap.isEmpty();
@@ -217,6 +238,10 @@ void RemoteInspector::updateHasActiveDebugSession()
 
     // FIXME: Expose some way to access this state in an embedder.
     // Legacy iOS WebKit 1 had a notification. This will need to be smarter with WebKit2.
+}
+
+RemoteInspector::Client::~Client()
+{
 }
 
 } // namespace Inspector

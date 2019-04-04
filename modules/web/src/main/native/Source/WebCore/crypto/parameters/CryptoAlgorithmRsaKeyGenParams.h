@@ -26,7 +26,7 @@
 #pragma once
 
 #include "CryptoAlgorithmParameters.h"
-#include <runtime/Uint8Array.h>
+#include <JavaScriptCore/Uint8Array.h>
 #include <wtf/Vector.h>
 
 #if ENABLE(SUBTLE_CRYPTO)
@@ -35,7 +35,7 @@ namespace WebCore {
 
 class CryptoAlgorithmRsaKeyGenParams : public CryptoAlgorithmParameters {
 public:
-    unsigned long modulusLength;
+    size_t modulusLength;
     RefPtr<Uint8Array> publicExponent;
 
     Class parametersClass() const override { return Class::RsaKeyGenParams; }

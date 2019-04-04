@@ -29,19 +29,18 @@
 #if ENABLE(REMOTE_INSPECTOR)
 
 #include "Document.h"
+#include "Frame.h"
 #include "InspectorController.h"
-#include "MainFrame.h"
 #include "Page.h"
 #include "Settings.h"
-#include <inspector/InspectorAgentBase.h>
-
-using namespace Inspector;
+#include <JavaScriptCore/InspectorAgentBase.h>
 
 namespace WebCore {
 
+using namespace Inspector;
+
 PageDebuggable::PageDebuggable(Page& page)
     : m_page(page)
-    , m_forcedDeveloperExtrasEnabled(false)
 {
 }
 
@@ -62,7 +61,7 @@ String PageDebuggable::url() const
         return String();
 
     String url = m_page.mainFrame().document()->url().string();
-    return url.isEmpty() ? ASCIILiteral("about:blank") : url;
+    return url.isEmpty() ? "about:blank"_s : url;
 }
 
 bool PageDebuggable::hasLocalDebugger() const
@@ -70,7 +69,7 @@ bool PageDebuggable::hasLocalDebugger() const
     return m_page.inspectorController().hasLocalFrontend();
 }
 
-void PageDebuggable::connect(Inspector::FrontendChannel* channel, bool isAutomaticConnection)
+void PageDebuggable::connect(Inspector::FrontendChannel* channel, bool isAutomaticConnection, bool immediatelyPause)
 {
     if (!m_page.settings().developerExtrasEnabled()) {
         m_forcedDeveloperExtrasEnabled = true;
@@ -79,7 +78,7 @@ void PageDebuggable::connect(Inspector::FrontendChannel* channel, bool isAutomat
         m_forcedDeveloperExtrasEnabled = false;
 
     InspectorController& inspectorController = m_page.inspectorController();
-    inspectorController.connectFrontend(channel, isAutomaticConnection);
+    inspectorController.connectFrontend(channel, isAutomaticConnection, immediatelyPause);
 }
 
 void PageDebuggable::disconnect(Inspector::FrontendChannel* channel)

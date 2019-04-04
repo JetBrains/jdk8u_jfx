@@ -1,9 +1,9 @@
-#! /usr/bin/perl
+#! /usr/bin/env perl
 #
 #   This file is part of the WebKit project
 #
 #   Copyright (C) 1999 Waldo Bastian (bastian@kde.org)
-#   Copyright (C) 2007-2016 Apple Inc. All rights reserved.
+#   Copyright (C) 2007-2018 Apple Inc. All rights reserved.
 #   Copyright (C) 2008 Nokia Corporation and/or its subsidiary(-ies)
 #   Copyright (C) 2010 Andras Becsi (abecsi@inf.u-szeged.hu), University of Szeged
 #   Copyright (C) 2013 Google Inc. All rights reserved.
@@ -32,7 +32,8 @@ use Getopt::Long;
 use JSON::PP;
 
 sub addProperty($$);
-sub isPropertyEnabled($);
+sub isPropertyEnabled($$);
+sub removeInactiveCodegenProperties($$);
 
 my $inputFile = "CSSProperties.json";
 
@@ -87,42 +88,86 @@ my %nameToAliases;
 for my $name (@allNames) {
     my $value = $propertiesHashRef->{$name};
     my $valueType = ref($value);
+    
     if ($valueType eq "HASH") {
-        if (isPropertyEnabled($value)) {
+        removeInactiveCodegenProperties($name, \%$value);
+        if (isPropertyEnabled($name, $value)) {
             addProperty($name, $value);
         }
-    } elsif ($valueType eq "ARRAY") {
-        for my $v (@$value) {
-            if (isPropertyEnabled($v)) {
-                addProperty($name, $v);
-                last;
-            }
-        }
     } else {
-        die "$name does not have a supported value type. Only dictionary and array types are supported.";
+        die "$name does not have a supported value type. Only dictionary types are supported.";
     }
 }
 
-sub isPropertyEnabled($)
+sub matchEnableFlags($)
 {
-    my ($optionsHashRef) = @_;
-
-    if (!exists($optionsHashRef->{"codegen-properties"})) {
+    my ($enable_flag) = @_;
+    
+    if (exists($defines{$enable_flag})) {
         return 1;
     }
-    if ($optionsHashRef->{"codegen-properties"}{"skip-codegen"}) {
+
+    if (substr($enable_flag, 0, 1) eq "!" && !exists($defines{substr($enable_flag, 1)})) {
+        return 1;
+    }
+    
+    return 0;
+}
+
+sub removeInactiveCodegenProperties($$)
+{
+    my ($name, $propertyValue) = @_;
+
+    if (!exists($propertyValue->{"codegen-properties"})) {
+        return;
+    }
+    
+    my $codegen_properties = $propertyValue->{"codegen-properties"};
+    my $valueType = ref($codegen_properties);
+
+    if ($valueType ne "ARRAY") {
+        return;
+    }
+
+    # Pick one based on "enable-if"
+    my $matching_codegen_options;
+    foreach my $entry (@{$codegen_properties}) {
+        if (!exists($entry->{"enable-if"})) {
+            print "Found 'codegen-properties' array with an unconditional entry under '$name'. This is probably unintentional.\n";
+            $matching_codegen_options = $entry;
+            last;
+        }
+
+        my $enable_flags = $entry->{"enable-if"};
+        if (matchEnableFlags($enable_flags)) {
+            $matching_codegen_options = $entry;
+            last;
+        }
+
+        $matching_codegen_options = $entry;
+    }
+    
+    $propertyValue->{"codegen-properties"} = $matching_codegen_options;
+}
+
+sub isPropertyEnabled($$)
+{
+    my ($name, $propertyValue) = @_;
+
+    if (!exists($propertyValue->{"codegen-properties"})) {
+        return 1;
+    }
+    
+    my $codegen_properties = $propertyValue->{"codegen-properties"};
+    if ($codegen_properties->{"skip-codegen"}) {
         return 0;
     }
-    if (!exists($optionsHashRef->{"codegen-properties"}{"enable-if"})) {
+
+    if (!exists($codegen_properties->{"enable-if"})) {
         return 1;
     }
-    if (exists($defines{$optionsHashRef->{"codegen-properties"}{"enable-if"}})) {
-        return 1;
-    }
-    if (substr($optionsHashRef->{"codegen-properties"}{"enable-if"}, 0, 1) eq "!" && !exists($defines{substr($optionsHashRef->{"codegen-properties"}{"enable-if"}, 1)})) {
-        return 1;
-    }
-    return 0;
+
+    return matchEnableFlags($codegen_properties->{"enable-if"});
 }
 
 sub addProperty($$)
@@ -142,6 +187,8 @@ sub addProperty($$)
                 if ($codegenOptionName eq "enable-if") {
                     next;
                 } elsif ($codegenOptionName eq "skip-codegen") {
+                    next;
+                } elsif ($codegenOptionName eq "comment") {
                     next;
                 } elsif ($codegenOptionName eq "high-priority") {
                     $nameIsHighPriority{$name} = 1;
@@ -205,9 +252,11 @@ print GPERF << "EOF";
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored \"-Wunknown-pragmas\"
-#pragma clang diagnostic ignored \"-Wdeprecated-register\"
 #pragma clang diagnostic ignored \"-Wimplicit-fallthrough\"
 #endif
+
+// Older versions of gperf like to use the `register` keyword.
+#define register
 
 namespace WebCore {
 
@@ -265,7 +314,7 @@ bool isInternalCSSProperty(const CSSPropertyID id)
     switch (id) {
 EOF
 
-foreach my $name (@internalProprerties) {
+foreach my $name (sort @internalProprerties) {
   print GPERF "    case CSSPropertyID::CSSProperty" . $nameToId{$name} . ":\n";
 }
 
@@ -289,10 +338,10 @@ const char* getPropertyName(CSSPropertyID id)
 const AtomicString& getPropertyNameAtomicString(CSSPropertyID id)
 {
     if (id < firstCSSProperty)
-        return nullAtom;
+        return nullAtom();
     int index = id - firstCSSProperty;
     if (index >= numCSSProperties)
-        return nullAtom;
+        return nullAtom();
 
     static AtomicString* propertyStrings = new AtomicString[numCSSProperties]; // Intentionally never destroyed.
     AtomicString& propertyString = propertyStrings[index];
@@ -368,13 +417,9 @@ print HEADER << "EOF";
 #pragma once
 
 #include <string.h>
+#include <wtf/Forward.h>
 #include <wtf/HashFunctions.h>
 #include <wtf/HashTraits.h>
-
-namespace WTF {
-class AtomicString;
-class String;
-}
 
 namespace WebCore {
 
@@ -531,8 +576,8 @@ sub getLayersAccessorFunction {
 sub getFillLayerType {
 my $name = shift;
 
-  return "BackgroundFillLayer" if $name =~ /background-/;
-  return "MaskFillLayer" if $name =~ /mask-/;
+  return "FillLayerType::Background" if $name =~ /background-/;
+  return "FillLayerType::Mask" if $name =~ /mask-/;
 }
 
 sub getFillLayerMapfunction {
@@ -808,7 +853,7 @@ sub generateInitialValueSetter {
   } elsif (exists $propertiesWithStyleBuilderOptions{$name}{"font-property"}) {
     $setterContent .= $indent . "    auto fontDescription = styleResolver.fontDescription();\n";
     $setterContent .= $indent . "    fontDescription." . $setter . "(FontCascadeDescription::" . $initial . "());\n";
-    $setterContent .= $indent . "    styleResolver.setFontDescription(fontDescription);\n";
+    $setterContent .= $indent . "    styleResolver.setFontDescription(WTFMove(fontDescription));\n";
   } elsif (exists $propertiesWithStyleBuilderOptions{$name}{"fill-layer-property"}) {
     $setterContent .= generateFillLayerPropertyInitialValueSetter($name, $indent . "    ");
   } else {
@@ -852,7 +897,7 @@ sub generateInheritValueSetter {
   } elsif (exists $propertiesWithStyleBuilderOptions{$name}{"font-property"}) {
     $setterContent .= $indent . "    auto fontDescription = styleResolver.fontDescription();\n";
     $setterContent .= $indent . "    fontDescription." . $setter . "(styleResolver.parentFontDescription()." . $getter . "());\n";
-    $setterContent .= $indent . "    styleResolver.setFontDescription(fontDescription);\n";
+    $setterContent .= $indent . "    styleResolver.setFontDescription(WTFMove(fontDescription));\n";
     $didCallSetValue = 1;
   } elsif (exists $propertiesWithStyleBuilderOptions{$name}{"fill-layer-property"}) {
     $setterContent .= generateFillLayerPropertyInheritValueSetter($name, $indent . "    ");
@@ -906,7 +951,7 @@ sub generateValueSetter {
   } elsif (exists $propertiesWithStyleBuilderOptions{$name}{"font-property"}) {
     $setterContent .= $indent . "    auto fontDescription = styleResolver.fontDescription();\n";
     $setterContent .= $indent . "    fontDescription." . $setter . "(" . $convertedValue . ");\n";
-    $setterContent .= $indent . "    styleResolver.setFontDescription(fontDescription);\n";
+    $setterContent .= $indent . "    styleResolver.setFontDescription(WTFMove(fontDescription));\n";
     $didCallSetValue = 1;
   } elsif (exists $propertiesWithStyleBuilderOptions{$name}{"fill-layer-property"}) {
     $setterContent .= generateFillLayerPropertyValueSetter($name, $indent . "    ");
@@ -999,9 +1044,9 @@ EOF
 close STYLEBUILDER;
 
 # Generate StylePropertyShorthandsFunctions.
-open SHORTHANDS_H, ">StylePropertyShorthandFunctions.h" || die "Could not open StylePropertyShorthandFunctions.h for writing";
+open SHORTHANDS_H, ">", "StylePropertyShorthandFunctions.h" or die "Could not open StylePropertyShorthandFunctions.h for writing\n";
 print SHORTHANDS_H << "EOF";
-/* This file is automatically generated from $inputFile by makeprop, do not edit */
+// This file is automatically generated from $inputFile by the makeprop.pl script. Do not edit it.
 
 #pragma once
 
@@ -1025,15 +1070,14 @@ EOF
 
 close SHORTHANDS_H;
 
-open SHORTHANDS_CPP, ">StylePropertyShorthandFunctions.cpp" || die "Could not open StylePropertyShorthandFunctions.cpp for writing";
+open SHORTHANDS_CPP, ">", "StylePropertyShorthandFunctions.cpp" or die "Could not open StylePropertyShorthandFunctions.cpp for writing\n";
 print SHORTHANDS_CPP << "EOF";
-/* This file is automatically generated from $inputFile by makeprop, do not edit */
+// This file is automatically generated from $inputFile by the makeprop.pl script. Do not edit it.
 
 #include "config.h"
 #include "StylePropertyShorthandFunctions.h"
 
 #include "StylePropertyShorthand.h"
-#include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
@@ -1074,8 +1118,6 @@ foreach my $name (@names) {
 print SHORTHANDS_CPP << "EOF";
 StylePropertyShorthand shorthandForProperty(CSSPropertyID propertyID)
 {
-    static NeverDestroyed<StylePropertyShorthand> emptyShorthand;
-
     switch (propertyID) {
 EOF
 
@@ -1089,7 +1131,7 @@ foreach my $name (@names) {
 
 print SHORTHANDS_CPP << "EOF";
     default:
-        return emptyShorthand;
+        return { };
     }
 }
 EOF

@@ -6,13 +6,13 @@
  * are met:
  *
  * 1.  Redistributions of source code must retain the above copyright
- *     notice, this list of conditions and the following disclaimer.
+ *     notice, this list of conditions and the following disclaimer. 
  * 2.  Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
+ *     documentation and/or other materials provided with the distribution. 
  * 3.  Neither the name of Apple Inc. ("Apple") nor the names of
  *     its contributors may be used to endorse or promote products derived
- *     from this software without specific prior written permission.
+ *     from this software without specific prior written permission. 
  *
  * THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -25,7 +25,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
+ 
 #import "config.h"
 #import "MainThread.h"
 
@@ -35,14 +35,15 @@
 #import <stdio.h>
 #import <wtf/Assertions.h>
 #import <wtf/HashSet.h>
+#import <wtf/RetainPtr.h>
+#import <wtf/SchedulePair.h>
 #import <wtf/Threading.h>
 
 #if USE(WEB_THREAD)
 #include <wtf/ios/WebCoreThread.h>
 #endif
 
-@interface JSWTFMainThreadCaller : NSObject {
-}
+@interface JSWTFMainThreadCaller : NSObject
 - (void)call;
 @end
 
@@ -53,19 +54,19 @@
     WTF::dispatchFunctionsFromMainThread();
 }
 
-@end // implementation JSWTFMainThreadCaller
+@end
 
 namespace WTF {
 
 static JSWTFMainThreadCaller* staticMainThreadCaller;
-static bool isTimerPosted; // This is only accessed on the 'main' thread.
+static bool isTimerPosted; // This is only accessed on the main thread.
 static bool mainThreadEstablishedAsPthreadMain;
 static pthread_t mainThreadPthread;
 static NSThread* mainThreadNSThread;
 
 #if USE(WEB_THREAD)
-static ThreadIdentifier sApplicationUIThreadIdentifier;
-static ThreadIdentifier sWebThreadIdentifier;
+static Thread* sApplicationUIThread;
+static Thread* sWebThread;
 #endif
 
 void initializeMainThreadPlatform()
@@ -76,7 +77,7 @@ void initializeMainThreadPlatform()
 #if !USE(WEB_THREAD)
     mainThreadEstablishedAsPthreadMain = false;
     mainThreadPthread = pthread_self();
-    mainThreadNSThread = [[NSThread currentThread] retain];
+    mainThreadNSThread = [NSThread currentThread];
 #else
     mainThreadEstablishedAsPthreadMain = true;
     ASSERT(!mainThreadPthread);
@@ -128,7 +129,7 @@ void scheduleDispatchFunctionsOnMainThread()
         postTimer();
         return;
     }
-
+    
     if (mainThreadEstablishedAsPthreadMain) {
         ASSERT(!mainThreadNSThread);
         [staticMainThreadCaller performSelectorOnMainThread:@selector(call) withObject:nil waitUntilDone:NO];
@@ -166,21 +167,16 @@ bool isUIThread()
     return pthread_main_np();
 }
 
+// Keep in mind that isWebThread can be called even when destroying the current thread.
 bool isWebThread()
 {
     return pthread_equal(pthread_self(), mainThreadPthread);
 }
 
-void initializeApplicationUIThreadIdentifier()
+void initializeApplicationUIThread()
 {
     ASSERT(pthread_main_np());
-    sApplicationUIThreadIdentifier = currentThread();
-}
-
-void initializeWebThreadIdentifier()
-{
-    ASSERT(!pthread_main_np());
-    sWebThreadIdentifier = currentThread();
+    sApplicationUIThread = &Thread::current();
 }
 
 void initializeWebThreadPlatform()
@@ -189,17 +185,19 @@ void initializeWebThreadPlatform()
 
     mainThreadEstablishedAsPthreadMain = false;
     mainThreadPthread = pthread_self();
-    mainThreadNSThread = [[NSThread currentThread] retain];
+    mainThreadNSThread = [NSThread currentThread];
+
+    sWebThread = &Thread::current();
 }
 
-bool canAccessThreadLocalDataForThread(ThreadIdentifier threadId)
+bool canAccessThreadLocalDataForThread(Thread& thread)
 {
-    ThreadIdentifier currentThreadId = currentThread();
-    if (threadId == currentThreadId)
+    Thread& currentThread = Thread::current();
+    if (&thread == &currentThread)
         return true;
 
-    if (threadId == sWebThreadIdentifier || threadId == sApplicationUIThreadIdentifier)
-        return (currentThreadId == sWebThreadIdentifier || currentThreadId == sApplicationUIThreadIdentifier) && webThreadIsUninitializedOrLockedOrDisabled();
+    if (&thread == sWebThread || &thread == sApplicationUIThread)
+        return (&currentThread == sWebThread || &currentThread == sApplicationUIThread) && webThreadIsUninitializedOrLockedOrDisabled();
 
     return false;
 }

@@ -31,7 +31,7 @@
 #include "Font.h"
 
 #if PLATFORM(COCOA)
-#include "CoreTextSPI.h"
+#include <pal/spi/cocoa/CoreTextSPI.h>
 #endif
 #include "FontCache.h"
 #include "FontCascade.h"
@@ -55,15 +55,13 @@ unsigned GlyphPage::s_count = 0;
 const float smallCapsFontSizeMultiplier = 0.7f;
 const float emphasisMarkFontSizeMultiplier = 0.5f;
 
-Font::Font(const FontPlatformData& platformData, bool isCustomFont, bool isLoading, bool isTextOrientationFallback)
-    : m_maxCharWidth(-1)
-    , m_avgCharWidth(-1)
-    , m_platformData(platformData)
-    , m_mathData(nullptr)
+Font::Font(const FontPlatformData& platformData, Origin origin, Interstitial interstitial, Visibility visibility, OrientationFallback orientationFallback)
+    : m_platformData(platformData)
+    , m_origin(origin)
+    , m_visibility(visibility)
     , m_treatAsFixedPitch(false)
-    , m_isCustomFont(isCustomFont)
-    , m_isLoading(isLoading)
-    , m_isTextOrientationFallback(isTextOrientationFallback)
+    , m_isInterstitial(interstitial == Interstitial::Yes)
+    , m_isTextOrientationFallback(orientationFallback == OrientationFallback::Yes)
     , m_isBrokenIdeographFallback(false)
     , m_hasVerticalGlyphs(false)
     , m_isUsedInSystemFallbackCache(false)
@@ -75,7 +73,7 @@ Font::Font(const FontPlatformData& platformData, bool isCustomFont, bool isLoadi
     platformGlyphInit();
     platformCharWidthInit();
 #if ENABLE(OPENTYPE_VERTICAL)
-    if (platformData.orientation() == Vertical && !isTextOrientationFallback) {
+    if (platformData.orientation() == FontOrientation::Vertical && orientationFallback == OrientationFallback::No) {
         m_verticalData = FontCache::singleton().verticalData(platformData);
         m_hasVerticalGlyphs = m_verticalData.get() && m_verticalData->hasVerticalMetrics();
     }
@@ -150,6 +148,121 @@ static bool fillGlyphPage(GlyphPage& pageToFill, UChar* buffer, unsigned bufferL
     return hasGlyphs;
 }
 
+static std::optional<size_t> codePointSupportIndex(UChar32 codePoint)
+{
+    // FIXME: Consider reordering these so the most common ones are at the front.
+    // Doing this could cause the BitVector to fit inside inline storage and therefore
+    // be both a performance and a memory progression.
+    if (codePoint < 0x20)
+        return codePoint;
+    if (codePoint >= 0x7F && codePoint < 0xA0)
+        return codePoint - 0x7F + 0x20;
+    std::optional<size_t> result;
+    switch (codePoint) {
+    case softHyphen:
+        result = 0x41;
+        break;
+    case newlineCharacter:
+        result = 0x42;
+        break;
+    case tabCharacter:
+        result = 0x43;
+        break;
+    case noBreakSpace:
+        result = 0x44;
+        break;
+    case narrowNoBreakSpace:
+        result = 0x45;
+        break;
+    case leftToRightMark:
+        result = 0x46;
+        break;
+    case rightToLeftMark:
+        result = 0x47;
+        break;
+    case leftToRightEmbed:
+        result = 0x48;
+        break;
+    case rightToLeftEmbed:
+        result = 0x49;
+        break;
+    case leftToRightOverride:
+        result = 0x4A;
+        break;
+    case rightToLeftOverride:
+        result = 0x4B;
+        break;
+    case leftToRightIsolate:
+        result = 0x4C;
+        break;
+    case rightToLeftIsolate:
+        result = 0x4D;
+        break;
+    case zeroWidthNonJoiner:
+        result = 0x4E;
+        break;
+    case zeroWidthJoiner:
+        result = 0x4F;
+        break;
+    case popDirectionalFormatting:
+        result = 0x50;
+        break;
+    case popDirectionalIsolate:
+        result = 0x51;
+        break;
+    case firstStrongIsolate:
+        result = 0x52;
+        break;
+    case objectReplacementCharacter:
+        result = 0x53;
+        break;
+    case zeroWidthNoBreakSpace:
+        result = 0x54;
+        break;
+    default:
+        result = std::nullopt;
+    }
+
+#ifndef NDEBUG
+    UChar32 codePointOrder[] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+        0x7F,
+        0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F,
+        0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F,
+        softHyphen,
+        newlineCharacter,
+        tabCharacter,
+        noBreakSpace,
+        narrowNoBreakSpace,
+        leftToRightMark,
+        rightToLeftMark,
+        leftToRightEmbed,
+        rightToLeftEmbed,
+        leftToRightOverride,
+        rightToLeftOverride,
+        leftToRightIsolate,
+        rightToLeftIsolate,
+        zeroWidthNonJoiner,
+        zeroWidthJoiner,
+        popDirectionalFormatting,
+        popDirectionalIsolate,
+        firstStrongIsolate,
+        objectReplacementCharacter,
+        zeroWidthNoBreakSpace
+    };
+    bool found = false;
+    for (size_t i = 0; i < WTF_ARRAY_LENGTH(codePointOrder); ++i) {
+        if (codePointOrder[i] == codePoint) {
+            ASSERT(i == result);
+            found = true;
+        }
+    }
+    ASSERT(found == static_cast<bool>(result));
+#endif
+    return result;
+}
+
 static RefPtr<GlyphPage> createAndFillGlyphPage(unsigned pageNumber, const Font& font)
 {
 #if PLATFORM(IOS)
@@ -176,11 +289,14 @@ static RefPtr<GlyphPage> createAndFillGlyphPage(unsigned pageNumber, const Font&
         auto overwriteCodePoints = [&](unsigned minimum, unsigned maximum, UChar newCodePoint) {
             unsigned begin = std::max(start, minimum);
             unsigned complete = std::min(end, maximum);
-            for (unsigned i = begin; i < complete; ++i)
+            for (unsigned i = begin; i < complete; ++i) {
+                ASSERT(codePointSupportIndex(i));
                 buffer[i - start] = newCodePoint;
+            }
         };
 
         auto overwriteCodePoint = [&](UChar codePoint, UChar newCodePoint) {
+            ASSERT(codePointSupportIndex(codePoint));
             if (codePoint >= start && codePoint < end)
                 buffer[codePoint - start] = newCodePoint;
         };
@@ -260,47 +376,59 @@ GlyphData Font::glyphDataForCharacter(UChar32 character) const
     return page->glyphDataForCharacter(character);
 }
 
-const Font& Font::verticalRightOrientationFont() const
+auto Font::ensureDerivedFontData() const -> DerivedFonts&
 {
     if (!m_derivedFontData)
-        m_derivedFontData = std::make_unique<DerivedFonts>(isCustomFont());
-    if (!m_derivedFontData->verticalRightOrientation) {
-        auto verticalRightPlatformData = FontPlatformData::cloneWithOrientation(m_platformData, Horizontal);
-        m_derivedFontData->verticalRightOrientation = create(verticalRightPlatformData, isCustomFont(), false, true);
+        m_derivedFontData = std::make_unique<DerivedFonts>();
+    return *m_derivedFontData;
+}
+
+const Font& Font::verticalRightOrientationFont() const
+{
+    DerivedFonts& derivedFontData = ensureDerivedFontData();
+    if (!derivedFontData.verticalRightOrientationFont) {
+        auto verticalRightPlatformData = FontPlatformData::cloneWithOrientation(m_platformData, FontOrientation::Horizontal);
+        derivedFontData.verticalRightOrientationFont = create(verticalRightPlatformData, origin(), Interstitial::No, Visibility::Visible, OrientationFallback::Yes);
     }
-    ASSERT(m_derivedFontData->verticalRightOrientation != this);
-    return *m_derivedFontData->verticalRightOrientation;
+    ASSERT(derivedFontData.verticalRightOrientationFont != this);
+    return *derivedFontData.verticalRightOrientationFont;
 }
 
 const Font& Font::uprightOrientationFont() const
 {
-    if (!m_derivedFontData)
-        m_derivedFontData = std::make_unique<DerivedFonts>(isCustomFont());
-    if (!m_derivedFontData->uprightOrientation)
-        m_derivedFontData->uprightOrientation = create(m_platformData, isCustomFont(), false, true);
-    ASSERT(m_derivedFontData->uprightOrientation != this);
-    return *m_derivedFontData->uprightOrientation;
+    DerivedFonts& derivedFontData = ensureDerivedFontData();
+    if (!derivedFontData.uprightOrientationFont)
+        derivedFontData.uprightOrientationFont = create(m_platformData, origin(), Interstitial::No, Visibility::Visible, OrientationFallback::Yes);
+    ASSERT(derivedFontData.uprightOrientationFont != this);
+    return *derivedFontData.uprightOrientationFont;
+}
+
+const Font& Font::invisibleFont() const
+{
+    DerivedFonts& derivedFontData = ensureDerivedFontData();
+    if (!derivedFontData.invisibleFont)
+        derivedFontData.invisibleFont = create(m_platformData, origin(), Interstitial::Yes, Visibility::Invisible);
+    ASSERT(derivedFontData.invisibleFont != this);
+    return *derivedFontData.invisibleFont;
 }
 
 const Font* Font::smallCapsFont(const FontDescription& fontDescription) const
 {
-    if (!m_derivedFontData)
-        m_derivedFontData = std::make_unique<DerivedFonts>(isCustomFont());
-    if (!m_derivedFontData->smallCaps)
-        m_derivedFontData->smallCaps = createScaledFont(fontDescription, smallCapsFontSizeMultiplier);
-    ASSERT(m_derivedFontData->smallCaps != this);
-    return m_derivedFontData->smallCaps.get();
+    DerivedFonts& derivedFontData = ensureDerivedFontData();
+    if (!derivedFontData.smallCapsFont)
+        derivedFontData.smallCapsFont = createScaledFont(fontDescription, smallCapsFontSizeMultiplier);
+    ASSERT(derivedFontData.smallCapsFont != this);
+    return derivedFontData.smallCapsFont.get();
 }
 
 const Font& Font::noSynthesizableFeaturesFont() const
 {
 #if PLATFORM(COCOA)
-    if (!m_derivedFontData)
-        m_derivedFontData = std::make_unique<DerivedFonts>(isCustomFont());
-    if (!m_derivedFontData->noSynthesizableFeatures)
-        m_derivedFontData->noSynthesizableFeatures = createFontWithoutSynthesizableFeatures();
-    ASSERT(m_derivedFontData->noSynthesizableFeatures != this);
-    return *m_derivedFontData->noSynthesizableFeatures;
+    DerivedFonts& derivedFontData = ensureDerivedFontData();
+    if (!derivedFontData.noSynthesizableFeaturesFont)
+        derivedFontData.noSynthesizableFeaturesFont = createFontWithoutSynthesizableFeatures();
+    ASSERT(derivedFontData.noSynthesizableFeaturesFont != this);
+    return *derivedFontData.noSynthesizableFeaturesFont;
 #else
     return *this;
 #endif
@@ -308,46 +436,28 @@ const Font& Font::noSynthesizableFeaturesFont() const
 
 const Font* Font::emphasisMarkFont(const FontDescription& fontDescription) const
 {
-    if (!m_derivedFontData)
-        m_derivedFontData = std::make_unique<DerivedFonts>(isCustomFont());
-    if (!m_derivedFontData->emphasisMark)
-        m_derivedFontData->emphasisMark = createScaledFont(fontDescription, emphasisMarkFontSizeMultiplier);
-    ASSERT(m_derivedFontData->emphasisMark != this);
-    return m_derivedFontData->emphasisMark.get();
+    DerivedFonts& derivedFontData = ensureDerivedFontData();
+    if (!derivedFontData.emphasisMarkFont)
+        derivedFontData.emphasisMarkFont = createScaledFont(fontDescription, emphasisMarkFontSizeMultiplier);
+    ASSERT(derivedFontData.emphasisMarkFont != this);
+    return derivedFontData.emphasisMarkFont.get();
 }
 
 const Font& Font::brokenIdeographFont() const
 {
-    if (!m_derivedFontData)
-        m_derivedFontData = std::make_unique<DerivedFonts>(isCustomFont());
-    if (!m_derivedFontData->brokenIdeograph) {
-        m_derivedFontData->brokenIdeograph = create(m_platformData, isCustomFont(), false);
-        m_derivedFontData->brokenIdeograph->m_isBrokenIdeographFallback = true;
+    DerivedFonts& derivedFontData = ensureDerivedFontData();
+    if (!derivedFontData.brokenIdeographFont) {
+        derivedFontData.brokenIdeographFont = create(m_platformData, origin(), Interstitial::No);
+        derivedFontData.brokenIdeographFont->m_isBrokenIdeographFallback = true;
     }
-    ASSERT(m_derivedFontData->brokenIdeograph != this);
-    return *m_derivedFontData->brokenIdeograph;
+    ASSERT(derivedFontData.brokenIdeographFont != this);
+    return *derivedFontData.brokenIdeographFont;
 }
 
-const Font& Font::nonSyntheticItalicFont() const
-{
-    if (!m_derivedFontData)
-        m_derivedFontData = std::make_unique<DerivedFonts>(isCustomFont());
-    if (!m_derivedFontData->nonSyntheticItalic) {
-#if PLATFORM(COCOA) || USE(CAIRO)
-        FontPlatformData nonSyntheticItalicFontPlatformData = FontPlatformData::cloneWithSyntheticOblique(m_platformData, false);
-#else
-        FontPlatformData nonSyntheticItalicFontPlatformData(m_platformData);
-#endif
-        m_derivedFontData->nonSyntheticItalic = create(nonSyntheticItalicFontPlatformData, isCustomFont());
-    }
-    ASSERT(m_derivedFontData->nonSyntheticItalic != this);
-    return *m_derivedFontData->nonSyntheticItalic;
-}
-
-#ifndef NDEBUG
+#if !LOG_DISABLED
 String Font::description() const
 {
-    if (isCustomFont())
+    if (origin() == Origin::Remote)
         return "[custom font]";
 
     return platformData().description();
@@ -356,7 +466,7 @@ String Font::description() const
 
 const OpenTypeMathData* Font::mathData() const
 {
-    if (m_isLoading)
+    if (isInterstitial())
         return nullptr;
     if (!m_mathData) {
         m_mathData = OpenTypeMathData::create(m_platformData);
@@ -366,10 +476,6 @@ const OpenTypeMathData* Font::mathData() const
     return m_mathData.get();
 }
 
-Font::DerivedFonts::~DerivedFonts()
-{
-}
-
 RefPtr<Font> Font::createScaledFont(const FontDescription& fontDescription, float scaleFactor) const
 {
     return platformCreateScaledFont(fontDescription, scaleFactor);
@@ -377,7 +483,6 @@ RefPtr<Font> Font::createScaledFont(const FontDescription& fontDescription, floa
 
 bool Font::applyTransforms(GlyphBufferGlyph* glyphs, GlyphBufferAdvance* advances, size_t glyphCount, bool enableKerning, bool requiresShaping) const
 {
-    // We need to handle transforms on SVG fonts internally, since they are rendered internally.
 #if PLATFORM(COCOA)
     CTFontTransformOptions options = (enableKerning ? kCTFontTransformApplyPositioning : 0) | (requiresShaping ? kCTFontTransformApplyShaping : 0);
     return CTFontTransformGlyphs(m_platformData.ctFont(), glyphs, reinterpret_cast<CGSize*>(advances), glyphCount, options);
@@ -508,10 +613,54 @@ void Font::removeFromSystemFallbackCache()
 }
 
 #if !PLATFORM(COCOA)
-bool Font::variantCapsSupportsCharacterForSynthesis(FontVariantCaps, UChar32) const
+bool Font::variantCapsSupportsCharacterForSynthesis(FontVariantCaps fontVariantCaps, UChar32) const
 {
-    return false;
+    switch (fontVariantCaps) {
+    case FontVariantCaps::Small:
+    case FontVariantCaps::Petite:
+    case FontVariantCaps::AllSmall:
+    case FontVariantCaps::AllPetite:
+        return false;
+    default:
+        // Synthesis only supports the variant-caps values listed above.
+        return true;
+    }
+}
+
+bool Font::platformSupportsCodePoint(UChar32 character) const
+{
+    return glyphForCharacter(character);
 }
 #endif
 
+bool Font::supportsCodePoint(UChar32 character) const
+{
+    // This is very similar to static_cast<bool>(glyphForCharacter(character))
+    // except that glyphForCharacter() maps certain code points to ZWS (because they
+    // shouldn't be visible). This function doesn't do that mapping, and instead is
+    // as honest as possible about what code points the font supports. This is so
+    // that we can accurately determine which characters are supported by this font
+    // so we know which boundaries to break strings when we send them to the complex
+    // text codepath. The complex text codepath is totally separate from this ZWS
+    // replacement logic (because CoreText handles those characters instead of WebKit).
+    if (auto index = codePointSupportIndex(character)) {
+        m_codePointSupport.ensureSize(2 * (*index + 1));
+        bool hasBeenSet = m_codePointSupport.quickSet(2 * *index);
+        if (!hasBeenSet && platformSupportsCodePoint(character))
+            m_codePointSupport.quickSet(2 * *index + 1);
+        return m_codePointSupport.quickGet(2 * *index + 1);
+    }
+    return glyphForCharacter(character);
+}
+
+bool Font::canRenderCombiningCharacterSequence(const UChar* characters, size_t length) const
+{
+    ASSERT(isMainThread());
+
+    for (UChar32 codePoint : StringView(characters, length).codePoints()) {
+        if (!supportsCodePoint(codePoint))
+            return false;
+    }
+    return true;
+}
 } // namespace WebCore

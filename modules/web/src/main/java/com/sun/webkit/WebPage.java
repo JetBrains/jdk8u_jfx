@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,8 @@
 
 package com.sun.webkit;
 
+import javafx.application.ConditionalFeature;
+import javafx.application.Platform;
 import com.sun.glass.utils.NativeLibLoader;
 import com.sun.webkit.event.WCFocusEvent;
 import com.sun.webkit.event.WCInputMethodEvent;
@@ -145,8 +147,13 @@ public final class WebPage {
             final boolean useDFGJIT = Boolean.valueOf(System.getProperty(
                     "com.sun.webkit.useDFGJIT", "true"));
 
+            // TODO: Enable CSS3D by default once it is stabilized.
+            boolean useCSS3D = Boolean.valueOf(System.getProperty(
+                    "com.sun.webkit.useCSS3D", "false"));
+            useCSS3D = useCSS3D && Platform.isSupported(ConditionalFeature.SCENE3D);
+
             // Initialize WTF, WebCore and JavaScriptCore.
-            twkInitWebCore(useJIT, useDFGJIT);
+            twkInitWebCore(useJIT, useDFGJIT, useCSS3D);
             return null;
         });
 
@@ -918,6 +925,7 @@ public final class WebPage {
                 log.log(Level.FINE, "getClientTextLocation() request for a disposed web page.");
                 return new int[] { 0, 0, 0, 0 };
             }
+            Invoker.getInvoker().checkEventThread();
             return twkGetTextLocation(getPage(), index);
 
         } finally {
@@ -932,6 +940,7 @@ public final class WebPage {
                 log.log(Level.FINE, "getClientLocationOffset() request for a disposed web page.");
                 return 0;
             }
+            Invoker.getInvoker().checkEventThread();
             return twkGetInsertPositionOffset(getPage());
 
         } finally {
@@ -2321,6 +2330,24 @@ public final class WebPage {
         return null;
     }
 
+    private boolean fwkCanRunBeforeUnloadConfirmPanel() {
+        log.log(Level.FINE, "JavaScript canRunBeforeUnloadConfirmPanel()");
+
+        if (uiClient != null) {
+            return uiClient.canRunBeforeUnloadConfirmPanel();
+        }
+        return false;
+    }
+
+    private boolean fwkRunBeforeUnloadConfirmPanel(String message) {
+        log.log(Level.FINE, "JavaScript runBeforeUnloadConfirmPanel(): message = " + message);
+
+        if (uiClient != null) {
+            return uiClient.runBeforeUnloadConfirmPanel(message);
+        }
+        return false;
+    }
+
     private void fwkAddMessageToConsole(String message, int lineNumber,
             String sourceId)
     {
@@ -2521,7 +2548,7 @@ public final class WebPage {
     // Native methods
     // *************************************************************************
 
-    private static native void twkInitWebCore(boolean useJIT, boolean useDFGJIT);
+    private static native void twkInitWebCore(boolean useJIT, boolean useDFGJIT, boolean useCSS3D);
     private native long twkCreatePage(boolean editable);
     private native void twkInit(long pPage, boolean usePlugins, float devicePixelScale);
     private native void twkDestroyPage(long pPage);

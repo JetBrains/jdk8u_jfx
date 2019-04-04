@@ -31,8 +31,7 @@
 #include "IDBDatabaseIdentifier.h"
 #include "UniqueIDBDatabase.h"
 #include "UniqueIDBDatabaseConnection.h"
-#include <wtf/CrossThreadQueue.h>
-#include <wtf/CrossThreadTask.h>
+#include <wtf/CrossThreadTaskHandler.h>
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
 #include <wtf/Ref.h>
@@ -51,7 +50,7 @@ namespace IDBServer {
 
 class IDBBackingStoreTemporaryFileHandler;
 
-class IDBServer : public RefCounted<IDBServer> {
+class IDBServer : public RefCounted<IDBServer>, public CrossThreadTaskHandler {
 public:
     static Ref<IDBServer> create(IDBBackingStoreTemporaryFileHandler&);
     WEBCORE_EXPORT static Ref<IDBServer> create(const String& databaseDirectoryPath, IDBBackingStoreTemporaryFileHandler&);
@@ -98,12 +97,12 @@ public:
     void registerTransaction(UniqueIDBDatabaseTransaction&);
     void unregisterTransaction(UniqueIDBDatabaseTransaction&);
 
-    void closeUniqueIDBDatabase(UniqueIDBDatabase&);
+    std::unique_ptr<UniqueIDBDatabase> closeAndTakeUniqueIDBDatabase(UniqueIDBDatabase&);
 
     std::unique_ptr<IDBBackingStore> createBackingStore(const IDBDatabaseIdentifier&);
 
-    WEBCORE_EXPORT void closeAndDeleteDatabasesModifiedSince(std::chrono::system_clock::time_point, std::function<void ()> completionHandler);
-    WEBCORE_EXPORT void closeAndDeleteDatabasesForOrigins(const Vector<SecurityOriginData>&, std::function<void ()> completionHandler);
+    WEBCORE_EXPORT void closeAndDeleteDatabasesModifiedSince(WallTime, Function<void ()>&& completionHandler);
+    WEBCORE_EXPORT void closeAndDeleteDatabasesForOrigins(const Vector<SecurityOriginData>&, Function<void ()>&& completionHandler);
 
 private:
     IDBServer(IDBBackingStoreTemporaryFileHandler&);
@@ -114,29 +113,17 @@ private:
     void performGetAllDatabaseNames(uint64_t serverConnectionIdentifier, const SecurityOriginData& mainFrameOrigin, const SecurityOriginData& openingOrigin, uint64_t callbackID);
     void didGetAllDatabaseNames(uint64_t serverConnectionIdentifier, uint64_t callbackID, const Vector<String>& databaseNames);
 
-    void performCloseAndDeleteDatabasesModifiedSince(std::chrono::system_clock::time_point, uint64_t callbackID);
+    void performCloseAndDeleteDatabasesModifiedSince(WallTime, uint64_t callbackID);
     void performCloseAndDeleteDatabasesForOrigins(const Vector<SecurityOriginData>&, uint64_t callbackID);
     void didPerformCloseAndDeleteDatabases(uint64_t callbackID);
 
-    static void databaseThreadEntry(void*);
-    void databaseRunLoop();
-    void handleTaskRepliesOnMainThread();
-
     HashMap<uint64_t, RefPtr<IDBConnectionToClient>> m_connectionMap;
-    HashMap<IDBDatabaseIdentifier, RefPtr<UniqueIDBDatabase>> m_uniqueIDBDatabaseMap;
-
-    ThreadIdentifier m_threadID { 0 };
-    Lock m_databaseThreadCreationLock;
-    Lock m_mainThreadReplyLock;
-    bool m_mainThreadReplyScheduled { false };
-
-    CrossThreadQueue<CrossThreadTask> m_databaseQueue;
-    CrossThreadQueue<CrossThreadTask> m_databaseReplyQueue;
+    HashMap<IDBDatabaseIdentifier, std::unique_ptr<UniqueIDBDatabase>> m_uniqueIDBDatabaseMap;
 
     HashMap<uint64_t, UniqueIDBDatabaseConnection*> m_databaseConnections;
     HashMap<IDBResourceIdentifier, UniqueIDBDatabaseTransaction*> m_transactions;
 
-    HashMap<uint64_t, std::function<void ()>> m_deleteDatabaseCompletionHandlers;
+    HashMap<uint64_t, Function<void ()>> m_deleteDatabaseCompletionHandlers;
 
     String m_databaseDirectoryPath;
     IDBBackingStoreTemporaryFileHandler& m_backingStoreTemporaryFileHandler;

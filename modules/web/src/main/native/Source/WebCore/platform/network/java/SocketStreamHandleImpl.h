@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2009 Apple Inc. All rights reserved.
  * Copyright (C) 2009, 2011 Google Inc.  All rights reserved.
- * Copyright (c) 2012, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2018, Oracle and/or its affiliates. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -34,9 +34,8 @@
 
 #include "SocketStreamHandle.h"
 
-#include "SessionID.h"
+#include <pal/SessionID.h>
 #include <wtf/java/JavaRef.h>
-#include <wtf/PassRefPtr.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
@@ -46,7 +45,7 @@ class SocketStreamHandleClient;
 
 class SocketStreamHandleImpl : public SocketStreamHandle {
 public:
-    static Ref<SocketStreamHandleImpl> create(const URL& url, SocketStreamHandleClient& client, SessionID, Page* page, const String&) {
+    static Ref<SocketStreamHandleImpl> create(const URL& url, SocketStreamHandleClient& client, PAL::SessionID, Page* page, const String&, SourceApplicationAuditToken&&) {
         return adoptRef(*new SocketStreamHandleImpl(url, page, client));
     }
 
@@ -58,8 +57,10 @@ public:
     void didClose();
 
 protected:
-    std::optional<size_t> platformSend(const char* data, size_t length) final;
+    void platformSend(const uint8_t* data, size_t length, Function<void(bool)>&&) final;
+    void platformSendHandshake(const uint8_t* data, size_t length, const std::optional<CookieRequestHeaderFieldProxy>&, Function<void(bool, bool)>&&) final;
     void platformClose() final;
+    size_t bufferedAmount() final { return 0; }
 
 private:
     SocketStreamHandleImpl(const URL&, Page*, SocketStreamHandleClient&);

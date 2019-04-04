@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "CallFrame.h"
 #include "VM.h"
 #include <wtf/DoublyLinkedList.h>
 #include <wtf/Expected.h>
@@ -46,16 +47,35 @@ public:
     void add(VM*);
     void remove(VM*);
 
+    Lock& getLock() { return m_lock; }
+
+    enum class FunctorStatus {
+        Continue,
+        Done
+    };
+
+    template <typename Functor>
+    void iterate(const Locker&, const Functor& functor) { iterate(functor); }
+
     Expected<Locker, Error> lock(Seconds timeout = Seconds::infinity());
 
     Expected<bool, Error> isValidExecutableMemory(const Locker&, void*);
     Expected<CodeBlock*, Error> codeBlockForMachinePC(const Locker&, void*);
 
+    JS_EXPORT_PRIVATE static bool currentThreadOwnsJSLock(ExecState*);
+    JS_EXPORT_PRIVATE static void gc(ExecState*);
+    JS_EXPORT_PRIVATE static void edenGC(ExecState*);
+    JS_EXPORT_PRIVATE static bool isInHeap(Heap*, void*);
+    JS_EXPORT_PRIVATE static bool isValidCell(Heap*, JSCell*);
+    JS_EXPORT_PRIVATE static bool isValidCodeBlock(ExecState*, CodeBlock*);
+    JS_EXPORT_PRIVATE static CodeBlock* codeBlockForFrame(CallFrame* topCallFrame, unsigned frameNumber);
+    JS_EXPORT_PRIVATE static void dumpCallFrame(CallFrame*, unsigned framesToSkip = 0);
+    JS_EXPORT_PRIVATE static void dumpStack(CallFrame* topCallFrame, unsigned framesToSkip = 0);
+    JS_EXPORT_PRIVATE static void dumpValue(JSValue);
+    JS_EXPORT_PRIVATE static void dumpCellMemory(JSCell*);
+    JS_EXPORT_PRIVATE static void dumpCellMemoryToStream(JSCell*, PrintStream&);
+
 private:
-    enum class FunctorStatus {
-        Continue,
-        Done
-    };
     template <typename Functor> void iterate(const Functor& functor)
     {
         for (VM* vm = m_list.head(); vm; vm = vm->next()) {

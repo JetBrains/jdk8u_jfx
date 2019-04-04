@@ -32,6 +32,7 @@ namespace WebCore {
 class RenderView;
 
 class RenderIFrame final : public RenderFrameBase {
+    WTF_MAKE_ISO_ALLOCATED(RenderIFrame);
 public:
     RenderIFrame(HTMLIFrameElement&, RenderStyle&&);
 
@@ -59,6 +60,8 @@ private:
     bool requiresLayer() const override;
 
     RenderView* contentRootRenderer() const;
+
+    bool isFullScreenIFrame() const;
 };
 
 } // namespace WebCore

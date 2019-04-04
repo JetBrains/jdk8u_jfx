@@ -108,9 +108,14 @@
   #undef XMLPUBVAR
   #undef XMLCALL
   #undef XMLCDECL
+  /*
+   * if defined(IN_LIBXML) this raises problems on mingw with msys
+   * _imp__xmlFree listed as missing. Try to workaround the problem
+   * by also making that declaration when compiling client code.
+   */
   #if defined(IN_LIBXML) && !defined(LIBXML_STATIC)
     #define XMLPUBFUN __declspec(dllexport)
-    #define XMLPUBVAR __declspec(dllexport)
+    #define XMLPUBVAR __declspec(dllexport) extern
   #else
     #define XMLPUBFUN
     #if !defined(LIBXML_STATIC)
@@ -126,8 +131,8 @@
   #endif
 #endif
 
-/* Cygwin platform, GNU compiler */
-#if defined(_WIN32) && defined(__CYGWIN__)
+/* Cygwin platform (does not define _WIN32), GNU compiler */
+#if defined(__CYGWIN__)
   #undef XMLPUBFUN
   #undef XMLPUBVAR
   #undef XMLCALL
@@ -140,7 +145,7 @@
     #if !defined(LIBXML_STATIC)
       #define XMLPUBVAR __declspec(dllimport) extern
     #else
-      #define XMLPUBVAR
+      #define XMLPUBVAR extern
     #endif
   #endif
   #define XMLCALL __cdecl

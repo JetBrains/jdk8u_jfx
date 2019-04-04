@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -60,7 +60,7 @@ final class UIClientImpl implements UIClient {
             boolean resizable)
     {
         UIClientImpl client = new UIClientImpl();
-        final WebPage page = new WebPage(null, client, null, null, null, false);
+        final WebPage page = new WebPage(null, client, null, null, new DumpRenderTree.ThemeClientImplStub(), false);
         client.setWebPage(page);
 
         page.setBounds(0, 0, 800, 600);
@@ -137,7 +137,9 @@ final class UIClientImpl implements UIClient {
      */
     @Override
     public void alert(String text) {
-        DumpRenderTree.out.printf("ALERT: %s\n", text);
+        if (!DumpRenderTree.drt.complete()) {
+            DumpRenderTree.out.printf("ALERT: %s\n", text);
+        }
     }
 
     /**
@@ -145,7 +147,9 @@ final class UIClientImpl implements UIClient {
      */
     @Override
     public boolean confirm(String text) {
-        DumpRenderTree.out.printf("CONFIRM: %s\n", text);
+        if (!DumpRenderTree.drt.complete()) {
+            DumpRenderTree.out.printf("CONFIRM: %s\n", text);
+        }
         return false;
     }
 
@@ -154,8 +158,23 @@ final class UIClientImpl implements UIClient {
      */
     @Override
     public String prompt(String text, String defaultValue) {
-        DumpRenderTree.out.printf("PROMPT: %s, default text: %s\n", text, defaultValue);
+        if (!DumpRenderTree.drt.complete()) {
+            DumpRenderTree.out.printf("PROMPT: %s, default text: %s\n", text, defaultValue);
+        }
         return defaultValue;
+    }
+
+    @Override
+    public boolean canRunBeforeUnloadConfirmPanel() {
+        return true;
+    }
+
+    @Override
+    public boolean runBeforeUnloadConfirmPanel(String message) {
+        if (!DumpRenderTree.drt.complete()) {
+            DumpRenderTree.out.printf("CONFIRM NAVIGATION: %s\n", message);
+        }
+        return !DumpRenderTree.drt.shouldStayOnPageAfterHandlingBeforeUnload();
     }
 
     /**

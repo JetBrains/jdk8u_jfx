@@ -32,14 +32,13 @@
 
 namespace WebCore {
 
-MoveSelectionCommand::MoveSelectionCommand(PassRefPtr<DocumentFragment> fragment, const Position& position, bool smartInsert, bool smartDelete)
+MoveSelectionCommand::MoveSelectionCommand(Ref<DocumentFragment>&& fragment, const Position& position, bool smartInsert, bool smartDelete)
     : CompositeEditCommand(position.anchorNode()->document())
-    , m_fragment(fragment)
+    , m_fragment(WTFMove(fragment))
     , m_position(position)
     , m_smartInsert(smartInsert)
     , m_smartDelete(smartDelete)
 {
-    ASSERT(m_fragment);
 }
 
 void MoveSelectionCommand::doApply()
@@ -83,7 +82,7 @@ void MoveSelectionCommand::doApply()
         // Document was modified out from under us.
         return;
     }
-    ReplaceSelectionCommand::CommandOptions options = ReplaceSelectionCommand::SelectReplacement | ReplaceSelectionCommand::PreventNesting;
+    OptionSet<ReplaceSelectionCommand::CommandOption> options { ReplaceSelectionCommand::SelectReplacement, ReplaceSelectionCommand::PreventNesting };
     if (m_smartInsert)
         options |= ReplaceSelectionCommand::SmartReplace;
 

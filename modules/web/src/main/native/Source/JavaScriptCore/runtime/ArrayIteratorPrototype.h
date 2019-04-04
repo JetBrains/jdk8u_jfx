@@ -25,12 +25,11 @@
 
 #pragma once
 
-#include "IterationKind.h"
 #include "JSObject.h"
 
 namespace JSC {
 
-class ArrayIteratorPrototype : public JSNonFinalObject {
+class ArrayIteratorPrototype final : public JSNonFinalObject {
 public:
     typedef JSNonFinalObject Base;
     static const unsigned StructureFlags = HasStaticPropertyTable | Base::StructureFlags;

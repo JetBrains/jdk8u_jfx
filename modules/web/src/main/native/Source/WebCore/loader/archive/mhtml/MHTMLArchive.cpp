@@ -35,9 +35,9 @@
 #include "MHTMLArchive.h"
 
 #include "Document.h"
+#include "Frame.h"
 #include "MHTMLParser.h"
 #include "MIMETypeRegistry.h"
-#include "MainFrame.h"
 #include "Page.h"
 #include "PageSerializer.h"
 #include "QuotedPrintable.h"
@@ -130,7 +130,7 @@ RefPtr<MHTMLArchive> MHTMLArchive::create(const URL& url, SharedBuffer& data)
     return mainArchive;
 }
 
-RefPtr<SharedBuffer> MHTMLArchive::generateMHTMLData(Page* page)
+Ref<SharedBuffer> MHTMLArchive::generateMHTMLData(Page* page)
 {
     Vector<PageSerializer::Resource> resources;
     PageSerializer pageSerializer(resources);
@@ -160,9 +160,9 @@ RefPtr<SharedBuffer> MHTMLArchive::generateMHTMLData(Page* page)
     stringBuilder.append("\"\r\n\r\n");
 
     // We use utf8() below instead of ascii() as ascii() replaces CRLFs with ?? (we still only have put ASCII characters in it).
-    ASSERT(stringBuilder.toString().containsOnlyASCII());
+    ASSERT(stringBuilder.toString().isAllASCII());
     CString asciiString = stringBuilder.toString().utf8();
-    RefPtr<SharedBuffer> mhtmlData = SharedBuffer::create();
+    auto mhtmlData = SharedBuffer::create();
     mhtmlData->append(asciiString.data(), asciiString.length());
 
     for (auto& resource : resources) {
@@ -213,7 +213,7 @@ RefPtr<SharedBuffer> MHTMLArchive::generateMHTMLData(Page* page)
     asciiString = makeString("--", boundary, "--\r\n").utf8();
     mhtmlData->append(asciiString.data(), asciiString.length());
 
-    return mhtmlData.release();
+    return mhtmlData;
 }
 
 }

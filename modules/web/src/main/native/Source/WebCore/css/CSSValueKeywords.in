@@ -11,7 +11,7 @@ revert
 // CSS_PROP_BORDER_TOP_STYLE
 // CSS_PROP_BORDER_BOTTOM_STYLE
 // CSS_PROP_BORDER_LEFT_STYLE
-// The order here must match the order of the EBorderStyle enum in RenderStyleConstants.h.
+// The order here must match the order of the BorderStyle enum in RenderStyleConstants.h.
 none
 hidden
 inset
@@ -48,9 +48,11 @@ small-caption
 -apple-system-short-footnote
 -apple-system-short-caption1
 -apple-system-tall-body
+-apple-system-title0
 -apple-system-title1
 -apple-system-title2
 -apple-system-title3
+-apple-system-title4
 #endif
 
 // This has to go after the -apple-system versions.
@@ -125,15 +127,7 @@ normal
 bold
 bolder
 lighter
-100
-200
-300
-400
-500
-600
-700
-800
-900
+
 //
 // CSS_PROP_FONT_SIZE:
 //
@@ -173,6 +167,7 @@ fantasy
 monospace
 -webkit-body
 -webkit-pictograph
+system-ui
 //
 //
 // CSS_PROP_*_COLOR
@@ -227,6 +222,29 @@ threedshadow
 window
 windowframe
 windowtext
+#if defined(WTF_PLATFORM_MAC) && WTF_PLATFORM_MAC
+-apple-system-header-text
+-apple-system-text-background
+-apple-system-control-background
+-apple-system-alternate-selected-text
+-apple-system-control-accent
+-apple-system-even-alternating-content-background
+-apple-system-odd-alternating-content-background
+-apple-system-selected-content-background
+-apple-system-unemphasized-selected-content-background
+-apple-system-selected-text
+-apple-system-unemphasized-selected-text
+-apple-system-selected-text-background
+-apple-system-unemphasized-selected-text-background
+-apple-system-placeholder-text
+-apple-system-find-highlight-background
+-apple-system-label
+-apple-system-secondary-label
+-apple-system-tertiary-label
+-apple-system-quaternary-label
+-apple-system-grid
+-apple-system-separator
+#endif
 -apple-wireless-playback-target-active
 -apple-system-blue
 -apple-system-brown
@@ -284,7 +302,7 @@ bottom
 -webkit-baseline-middle
 //
 // CSS_PROP_TEXT_ALIGN:
-// The order here must match the order of the ETextAlign enum in RenderStyleConstants.h.
+// The order here must match the order of the TextAlignMode enum in RenderStyleConstants.h.
 //
 -webkit-auto
 left
@@ -309,7 +327,7 @@ outside
 inside
 //
 // CSS_PROP_LIST_STYLE_TYPE:
-// The order here must match the order of the EListStyleType enum in RenderStyleConstants.h.
+// The order here must match the order of the ListStyleType enum in RenderStyleConstants.h.
 //
 disc
 circle
@@ -394,7 +412,7 @@ katakana-iroha
 //none
 //
 // CSS_PROP_DISPLAY:
-// The order here must match the order of the EDisplay enum in RenderStyleConstants.h.
+// The order here must match the order of the DisplayType enum in RenderStyleConstants.h.
 //
 inline
 block
@@ -423,30 +441,34 @@ inline-grid
 //none
 //
 // CSS_PROP_CURSOR:
-// The order here must match the order of the ECursor enum in RenderStyleConstants.h.
+// The order here must match the order of the CursorType enum in RenderStyleConstants.h.
 //
 auto
-crosshair
 default
-pointer
-move
-vertical-text
-cell
+// none
 context-menu
+help
+pointer
+progress
+wait
+cell
+crosshair
+text
+vertical-text
 alias
 // copy
-progress
+move
 no-drop
 not-allowed
-zoom-in
-zoom-out
+grab
+grabbing
 e-resize
+n-resize
 ne-resize
 nw-resize
-n-resize
+s-resize
 se-resize
 sw-resize
-s-resize
 w-resize
 ew-resize
 ns-resize
@@ -454,15 +476,13 @@ nesw-resize
 nwse-resize
 col-resize
 row-resize
-text
-wait
-help
 all-scroll
+zoom-in
+zoom-out
 -webkit-grab
 -webkit-grabbing
 -webkit-zoom-in
 -webkit-zoom-out
-// none
 //
 // CSS_PROP_CURSOR_VISIBILITY:
 // auto
@@ -511,6 +531,8 @@ hide
 higher
 invert
 inverted
+isolate-override
+plaintext
 -webkit-isolate
 -webkit-isolate-override
 -webkit-plaintext
@@ -595,6 +617,7 @@ space-evenly
 // flex-end
 // center
 // baseline
+first-baseline
 last-baseline
 // stretch
 
@@ -613,7 +636,8 @@ last-baseline
 // auto
 // stretch
 // baseline
-// last-baseline
+// last baseline
+// first baseline
 // center
 // start
 // end
@@ -687,9 +711,12 @@ min-intrinsic
 //
 // CSS3 intrinsic dimension keywords
 //
+min-content
 -webkit-min-content
+max-content
 -webkit-max-content
 -webkit-fill-available
+fit-content
 -webkit-fit-content
 
 //
@@ -809,9 +836,16 @@ image-controls-button
 #if defined(ENABLE_APPLE_PAY) && ENABLE_APPLE_PAY
 -apple-pay-button
 #endif
+#if defined(ENABLE_INPUT_TYPE_COLOR) && ENABLE_INPUT_TYPE_COLOR
+color-well
+#endif
+#if defined(ENABLE_DATALIST_ELEMENT) && ENABLE_DATALIST_ELEMENT
+list-button
+#endif
 textarea
 #if defined(ENABLE_ATTACHMENT_ELEMENT) && ENABLE_ATTACHMENT_ELEMENT
 attachment
+borderless-attachment
 #endif
 caps-lock-indicator
 
@@ -842,11 +876,15 @@ var
 -internal-variable-value
 
 //
+// Environment Variables
+//
+env
+
+//
 // CSS_PROP_BREAK_BEFORE/AFTER/INSIDE
 //
 avoid-column
 avoid-page
-avoid-region
 page
 recto
 region
@@ -856,6 +894,7 @@ verso
 margin-box
 
 // clip-path
+stroke-box
 view-box
 
 //
@@ -981,15 +1020,6 @@ geometricPrecision
 economy
 exact
 
-#if defined(ENABLE_VIEW_MODE_CSS_MEDIA) && ENABLE_VIEW_MODE_CSS_MEDIA
-// (-webkit-view-mode:) media feature:
-floating
-fullscreen
-maximized
-minimized
-windowed
-#endif // ENABLE_VIEW_MODE_CSS_MEDIA
-
 // -webkit-hyphenate-limit-lines
 no-limit
 
@@ -1096,8 +1126,6 @@ x
 y
 #endif
 
-// -webkit-region-fragment
-// auto
 break
 
 wrap
@@ -1157,8 +1185,10 @@ cross-fade
 image-set
 linear-gradient
 radial-gradient
+conic-gradient
 repeating-linear-gradient
 repeating-radial-gradient
+repeating-conic-gradient
 -webkit-canvas
 -webkit-cross-fade
 -webkit-gradient
@@ -1207,6 +1237,8 @@ url
 cubic-bezier
 spring
 steps
+frames
+apple-invert-lightness
 
 // colors
 rgb
@@ -1238,11 +1270,18 @@ translateY
 translateZ
 translate3d
 
+// transform-box
+// border-box
+// view-box
+fill-box
+
 // motion path
 path
 
 calc
 -webkit-calc
+min
+max
 
 #if defined(ENABLE_CSS_IMAGE_RESOLUTION) && ENABLE_CSS_IMAGE_RESOLUTION
 from-image
@@ -1264,7 +1303,6 @@ span
 
 // grid-template-{columns|rows}
 minmax
-fit-content
 
 // grid-auto-flow
 auto-flow
@@ -1326,6 +1364,10 @@ rec2020
 sRGB
 display-p3
 
+// prefers-default-appearance
+prefers
+// no-preference
+
 // prefers-reduced-motion
 reduce
 no-preference
@@ -1333,3 +1375,17 @@ no-preference
 // auto-repeat
 auto-fill
 auto-fit
+
+// font-display
+// auto
+// block
+swap
+fallback
+optional
+
+#if defined(ENABLE_APPLICATION_MANIFEST) && ENABLE_APPLICATION_MANIFEST
+fullscreen
+standalone
+minimal-ui
+browser
+#endif

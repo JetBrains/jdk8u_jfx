@@ -26,11 +26,8 @@
 #include "config.h"
 #include "PerformanceObserver.h"
 
-#if ENABLE(WEB_TIMING)
-
 #include "DOMWindow.h"
 #include "Document.h"
-#include "ExceptionCode.h"
 #include "Performance.h"
 #include "PerformanceObserverEntryList.h"
 #include "WorkerGlobalScope.h"
@@ -51,13 +48,19 @@ PerformanceObserver::PerformanceObserver(ScriptExecutionContext& scriptExecution
         ASSERT_NOT_REACHED();
 }
 
+void PerformanceObserver::disassociate()
+{
+    m_performance = nullptr;
+    m_registered = false;
+}
+
 ExceptionOr<void> PerformanceObserver::observe(Init&& init)
 {
     if (!m_performance)
         return Exception { TypeError };
 
     if (init.entryTypes.isEmpty())
-        return Exception { TypeError, ASCIILiteral("entryTypes cannot be an empty list") };
+        return Exception { TypeError, "entryTypes cannot be an empty list"_s };
 
     OptionSet<PerformanceEntry::Type> filter;
     for (const String& entryType : init.entryTypes) {
@@ -66,7 +69,7 @@ ExceptionOr<void> PerformanceObserver::observe(Init&& init)
     }
 
     if (filter.isEmpty())
-        return Exception { TypeError, ASCIILiteral("entryTypes contained only unsupported types") };
+        return Exception { TypeError, "entryTypes contained only unsupported types"_s };
 
     m_typeFilter = filter;
 
@@ -99,9 +102,7 @@ void PerformanceObserver::deliver()
 
     Vector<RefPtr<PerformanceEntry>> entries = WTFMove(m_entriesToDeliver);
     auto list = PerformanceObserverEntryList::create(WTFMove(entries));
-    m_callback->handleEvent(list.ptr(), this);
+    m_callback->handleEvent(list, *this);
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_TIMING)

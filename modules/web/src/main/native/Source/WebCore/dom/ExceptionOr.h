@@ -1,6 +1,6 @@
 /*
 
-Copyright (C) 2016 Apple Inc. All rights reserved.
+Copyright (C) 2016-2017 Apple Inc. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include "Exception.h"
+#include <wtf/CrossThreadCopier.h>
 #include <wtf/Expected.h>
 
 namespace WebCore {
@@ -40,6 +41,7 @@ public:
     bool hasException() const;
     const Exception& exception() const;
     Exception&& releaseException();
+    const ReturnType& returnValue() const;
     ReturnType&& releaseReturnValue();
 
 private:
@@ -54,6 +56,7 @@ public:
     bool hasException() const;
     const Exception& exception() const;
     Exception&& releaseException();
+    const ReturnReferenceType& returnValue() const;
     ReturnReferenceType& releaseReturnValue();
 
 private:
@@ -92,7 +95,12 @@ template<typename ReturnType> template<typename OtherType> inline ExceptionOr<Re
 
 template<typename ReturnType> inline bool ExceptionOr<ReturnType>::hasException() const
 {
-    return !m_value.hasValue();
+    return !m_value.has_value();
+}
+
+template<typename ReturnType> inline const Exception& ExceptionOr<ReturnType>::exception() const
+{
+    return m_value.error();
 }
 
 template<typename ReturnType> inline Exception&& ExceptionOr<ReturnType>::releaseException()
@@ -100,9 +108,9 @@ template<typename ReturnType> inline Exception&& ExceptionOr<ReturnType>::releas
     return WTFMove(m_value.error());
 }
 
-template<typename ReturnType> inline const Exception& ExceptionOr<ReturnType>::exception() const
+template<typename ReturnType> inline const ReturnType& ExceptionOr<ReturnType>::returnValue() const
 {
-    return m_value.error();
+    return m_value.value();
 }
 
 template<typename ReturnType> inline ReturnType&& ExceptionOr<ReturnType>::releaseReturnValue()
@@ -135,6 +143,11 @@ template<typename ReturnReferenceType> inline Exception&& ExceptionOr<ReturnRefe
     return m_value.releaseException();
 }
 
+template<typename ReturnReferenceType> inline const ReturnReferenceType& ExceptionOr<ReturnReferenceType&>::returnValue() const
+{
+    return *m_value.returnValue();
+}
+
 template<typename ReturnReferenceType> inline ReturnReferenceType& ExceptionOr<ReturnReferenceType&>::releaseReturnValue()
 {
     return *m_value.releaseReturnValue();
@@ -147,7 +160,7 @@ inline ExceptionOr<void>::ExceptionOr(Exception&& exception)
 
 inline bool ExceptionOr<void>::hasException() const
 {
-    return !m_value.hasValue();
+    return !m_value.has_value();
 }
 
 inline const Exception& ExceptionOr<void>::exception() const
@@ -167,4 +180,16 @@ inline ExceptionOr<void> isolatedCopy(ExceptionOr<void>&& value)
     return { };
 }
 
+}
+
+namespace WTF {
+template<typename T> struct CrossThreadCopierBase<false, false, WebCore::ExceptionOr<T> > {
+    typedef WebCore::ExceptionOr<T> Type;
+    static Type copy(const Type& source)
+    {
+        if (source.hasException())
+            return crossThreadCopy(source.exception());
+        return crossThreadCopy(source.returnValue());
+    }
+};
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2013 Apple Inc.
+ * Copyright (C) 2006-2017 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Kenneth Rohde Christiansen
  *
  * This library is free software; you can redistribute it and/or
@@ -24,6 +24,7 @@
 
 #include "CSSValueKeywords.h"
 #include "Element.h"
+#include "FileSystem.h"
 #include "FontMetrics.h"
 #include "Frame.h"
 #include "FrameSelection.h"
@@ -34,11 +35,12 @@
 #include "RenderMeter.h"
 #include "RenderSlider.h"
 #include "Settings.h"
-#include "SoftLinking.h"
 #include "SystemInfo.h"
 #include "UserAgentStyleSheets.h"
 #include "WebCoreBundleWin.h"
+#include <wtf/SoftLinking.h>
 #include <wtf/text/StringBuilder.h>
+#include <wtf/text/win/WCharStringExtras.h>
 #include <wtf/win/GDIObject.h>
 
 #if ENABLE(VIDEO)
@@ -156,9 +158,9 @@ static bool haveTheme;
 
 static const unsigned vistaMenuListButtonOutset = 1;
 
-using namespace std;
 
 namespace WebCore {
+using namespace std;
 
 // This is the fixed width IE and Firefox use for buttons on dropdown menus
 static const int dropDownButtonWidth = 17;
@@ -183,15 +185,10 @@ void RenderThemeWin::setWebKitIsBeingUnloaded()
     gWebKitIsBeingUnloaded = true;
 }
 
-Ref<RenderTheme> RenderThemeWin::create()
+RenderTheme& RenderTheme::singleton()
 {
-    return adoptRef(*new RenderThemeWin);
-}
-
-Ref<RenderTheme> RenderTheme::themeForPage(Page* page)
-{
-    static RenderTheme& winTheme = RenderThemeWin::create().leakRef();
-    return winTheme;
+    static NeverDestroyed<RenderThemeWin> theme;
+    return theme;
 }
 
 RenderThemeWin::RenderThemeWin()
@@ -296,35 +293,35 @@ bool RenderThemeWin::supportsHover(const RenderStyle&) const
     return haveTheme;
 }
 
-Color RenderThemeWin::platformActiveSelectionBackgroundColor() const
+Color RenderThemeWin::platformActiveSelectionBackgroundColor(OptionSet<StyleColor::Options>) const
 {
     COLORREF color = GetSysColor(COLOR_HIGHLIGHT);
     return Color(GetRValue(color), GetGValue(color), GetBValue(color));
 }
 
-Color RenderThemeWin::platformInactiveSelectionBackgroundColor() const
+Color RenderThemeWin::platformInactiveSelectionBackgroundColor(OptionSet<StyleColor::Options>) const
 {
     // This color matches Firefox.
     return Color(176, 176, 176);
 }
 
-Color RenderThemeWin::platformActiveSelectionForegroundColor() const
+Color RenderThemeWin::platformActiveSelectionForegroundColor(OptionSet<StyleColor::Options>) const
 {
     COLORREF color = GetSysColor(COLOR_HIGHLIGHTTEXT);
     return Color(GetRValue(color), GetGValue(color), GetBValue(color));
 }
 
-Color RenderThemeWin::platformInactiveSelectionForegroundColor() const
+Color RenderThemeWin::platformInactiveSelectionForegroundColor(OptionSet<StyleColor::Options> options) const
 {
-    return platformActiveSelectionForegroundColor();
+    return platformActiveSelectionForegroundColor(options);
 }
 
 static void fillFontDescription(FontCascadeDescription& fontDescription, LOGFONT& logFont, float fontSize)
 {
     fontDescription.setIsAbsoluteSize(true);
-    fontDescription.setOneFamily(String(logFont.lfFaceName));
+    fontDescription.setOneFamily(nullTerminatedWCharToString(logFont.lfFaceName));
     fontDescription.setSpecifiedSize(fontSize);
-    fontDescription.setWeight(logFont.lfWeight >= 700 ? FontWeightBold : FontWeightNormal); // FIXME: Use real weight.
+    fontDescription.setWeight(logFont.lfWeight >= 700 ? boldWeightValue() : normalWeightValue()); // FIXME: Use real weight.
     fontDescription.setIsItalic(logFont.lfItalic);
 }
 
@@ -761,9 +758,9 @@ void RenderThemeWin::adjustMenuListButtonStyle(StyleResolver& styleResolver, Ren
 {
     // These are the paddings needed to place the text correctly in the <select> box
     const int dropDownBoxPaddingTop    = 2;
-    const int dropDownBoxPaddingRight  = style.direction() == LTR ? 4 + dropDownButtonWidth : 4;
+    const int dropDownBoxPaddingRight  = style.direction() == TextDirection::LTR ? 4 + dropDownButtonWidth : 4;
     const int dropDownBoxPaddingBottom = 2;
-    const int dropDownBoxPaddingLeft   = style.direction() == LTR ? 4 : 4 + dropDownButtonWidth;
+    const int dropDownBoxPaddingLeft   = style.direction() == TextDirection::LTR ? 4 : 4 + dropDownButtonWidth;
     // The <select> box must be at least 12px high for the button to render nicely on Windows
     const int dropDownBoxMinHeight = 12;
 
@@ -785,7 +782,7 @@ void RenderThemeWin::adjustMenuListButtonStyle(StyleResolver& styleResolver, Ren
     style.setLineHeight(RenderStyle::initialLineHeight());
 
     // White-space is locked to pre
-    style.setWhiteSpace(PRE);
+    style.setWhiteSpace(WhiteSpace::Pre);
 }
 
 bool RenderThemeWin::paintMenuListButtonDecorations(const RenderBox& renderer, const PaintInfo& paintInfo, const FloatRect& rect)
@@ -797,7 +794,7 @@ bool RenderThemeWin::paintMenuListButtonDecorations(const RenderBox& renderer, c
     // leaving space for the text field's 1px border
     IntRect buttonRect(rect);
     buttonRect.inflate(-borderThickness);
-    if (renderer.style().direction() == LTR)
+    if (renderer.style().direction() == TextDirection::LTR)
         buttonRect.setX(buttonRect.maxX() - dropDownButtonWidth);
     buttonRect.setWidth(dropDownButtonWidth);
 
@@ -890,16 +887,16 @@ bool RenderThemeWin::paintSearchFieldCancelButton(const RenderBox& o, const Pain
     // be one pixel closer to the bottom of the field.  This tends to look better with the text.
     bounds.setY(parentBox.y() + (parentBox.height() - bounds.height() + 1) / 2);
 
-    static Image* cancelImage = Image::loadPlatformResource("searchCancel").leakRef();
-    static Image* cancelPressedImage = Image::loadPlatformResource("searchCancelPressed").leakRef();
-    paintInfo.context().drawImage(isPressed(o) ? *cancelPressedImage : *cancelImage, bounds);
+    static Image& cancelImage = Image::loadPlatformResource("searchCancel").leakRef();
+    static Image& cancelPressedImage = Image::loadPlatformResource("searchCancelPressed").leakRef();
+    paintInfo.context().drawImage(isPressed(o) ? cancelPressedImage : cancelImage, bounds);
     return false;
 }
 
 void RenderThemeWin::adjustSearchFieldCancelButtonStyle(StyleResolver&, RenderStyle& style, const Element*) const
 {
     // Scale the button size based on the font size
-    float fontScale = style.fontSize() / defaultControlFontPixelSize;
+    float fontScale = style.computedFontPixelSize() / defaultControlFontPixelSize;
     int cancelButtonSize = lroundf(min(max(minCancelButtonSize, defaultCancelButtonSize * fontScale), maxCancelButtonSize));
     style.setWidth(Length(cancelButtonSize, Fixed));
     style.setHeight(Length(cancelButtonSize, Fixed));
@@ -915,7 +912,7 @@ void RenderThemeWin::adjustSearchFieldDecorationPartStyle(StyleResolver&, Render
 void RenderThemeWin::adjustSearchFieldResultsDecorationPartStyle(StyleResolver&, RenderStyle& style, const Element*) const
 {
     // Scale the decoration size based on the font size
-    float fontScale = style.fontSize() / defaultControlFontPixelSize;
+    float fontScale = style.computedFontPixelSize() / defaultControlFontPixelSize;
     int magnifierSize = lroundf(min(max(minSearchFieldResultsDecorationSize, defaultSearchFieldResultsDecorationSize * fontScale),
                                      maxSearchFieldResultsDecorationSize));
     style.setWidth(Length(magnifierSize, Fixed));
@@ -939,15 +936,15 @@ bool RenderThemeWin::paintSearchFieldResultsDecorationPart(const RenderBox& o, c
     // be one pixel closer to the bottom of the field.  This tends to look better with the text.
     bounds.setY(parentBox.y() + (parentBox.height() - bounds.height() + 1) / 2);
 
-    static Image* magnifierImage = Image::loadPlatformResource("searchMagnifier").leakRef();
-    paintInfo.context().drawImage(*magnifierImage, bounds);
+    static Image& magnifierImage = Image::loadPlatformResource("searchMagnifier").leakRef();
+    paintInfo.context().drawImage(magnifierImage, bounds);
     return false;
 }
 
 void RenderThemeWin::adjustSearchFieldResultsButtonStyle(StyleResolver&, RenderStyle& style, const Element*) const
 {
     // Scale the button size based on the font size
-    float fontScale = style.fontSize() / defaultControlFontPixelSize;
+    float fontScale = style.computedFontPixelSize() / defaultControlFontPixelSize;
     int magnifierHeight = lroundf(min(max(minSearchFieldResultsDecorationSize, defaultSearchFieldResultsDecorationSize * fontScale),
                                    maxSearchFieldResultsDecorationSize));
     int magnifierWidth = lroundf(magnifierHeight * defaultSearchFieldResultsButtonWidth / defaultSearchFieldResultsDecorationSize);
@@ -974,8 +971,8 @@ bool RenderThemeWin::paintSearchFieldResultsButton(const RenderBox& o, const Pai
     // be one pixel closer to the bottom of the field.  This tends to look better with the text.
     bounds.setY(parentBox.y() + (parentBox.height() - bounds.height() + 1) / 2);
 
-    static Image* magnifierImage = Image::loadPlatformResource("searchMagnifierResults").leakRef();
-    paintInfo.context().drawImage(*magnifierImage, bounds);
+    static Image& magnifierImage = Image::loadPlatformResource("searchMagnifierResults").leakRef();
+    paintInfo.context().drawImage(magnifierImage, bounds);
     return false;
 }
 
@@ -1015,11 +1012,11 @@ static int cssValueIdToSysColorIndex(CSSValueID cssValueId)
     }
 }
 
-Color RenderThemeWin::systemColor(CSSValueID cssValueId) const
+Color RenderThemeWin::systemColor(CSSValueID cssValueId, OptionSet<StyleColor::Options> options) const
 {
     int sysColorIndex = cssValueIdToSysColorIndex(cssValueId);
     if (sysColorIndex == -1)
-        return RenderTheme::systemColor(cssValueId);
+        return RenderTheme::systemColor(cssValueId, options);
 
     COLORREF color = GetSysColor(sysColorIndex);
     return Color(GetRValue(color), GetGValue(color), GetBValue(color));
@@ -1028,7 +1025,7 @@ Color RenderThemeWin::systemColor(CSSValueID cssValueId) const
 #if ENABLE(VIDEO)
 static const size_t maximumReasonableBufferSize = 32768;
 
-static void fillBufferWithContentsOfFile(PlatformFileHandle file, long long filesize, Vector<char>& buffer)
+static void fillBufferWithContentsOfFile(FileSystem::PlatformFileHandle file, long long filesize, Vector<char>& buffer)
 {
     // Load the file content into buffer
     buffer.resize(filesize + 1);
@@ -1040,7 +1037,7 @@ static void fillBufferWithContentsOfFile(PlatformFileHandle file, long long file
         if (filesize - bufferPosition < bufferReadSize)
             bufferReadSize = filesize - bufferPosition;
 
-        bytesRead = readFromFile(file, buffer.data() + bufferPosition, bufferReadSize);
+        bytesRead = FileSystem::readFromFile(file, buffer.data() + bufferPosition, bufferReadSize);
         if (bytesRead != bufferReadSize) {
             buffer.clear();
             return;
@@ -1062,19 +1059,19 @@ String RenderThemeWin::stringWithContentsOfFile(CFStringRef name, CFStringRef ty
     if (!CFURLGetFileSystemRepresentation(requestedURLRef.get(), false, requestedFilePath, MAX_PATH))
         return String();
 
-    PlatformFileHandle requestedFileHandle = openFile(requestedFilePath, OpenForRead);
-    if (!isHandleValid(requestedFileHandle))
+    FileSystem::PlatformFileHandle requestedFileHandle = FileSystem::openFile(requestedFilePath, FileSystem::FileOpenMode::Read);
+    if (!FileSystem::isHandleValid(requestedFileHandle))
         return String();
 
     long long filesize = -1;
-    if (!getFileSize(requestedFileHandle, filesize)) {
-        closeFile(requestedFileHandle);
+    if (!FileSystem::getFileSize(requestedFileHandle, filesize)) {
+        FileSystem::closeFile(requestedFileHandle);
         return String();
     }
 
     Vector<char> fileContents;
     fillBufferWithContentsOfFile(requestedFileHandle, filesize, fileContents);
-    closeFile(requestedFileHandle);
+    FileSystem::closeFile(requestedFileHandle);
 
     return String(fileContents.data(), static_cast<size_t>(filesize));
 }

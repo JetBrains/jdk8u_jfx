@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  */
 #include "config.h"
 
@@ -39,7 +39,7 @@ JLString String::toJavaString(JNIEnv *env) const
             // Convert latin1 chars to unicode.
             Vector<jchar> jchars(len);
             for (unsigned i = 0; i < len; i++) {
-                jchars[i] = at(i);
+                jchars[i] = characterAt(i);
             }
             return env->NewString(jchars.data(), len);
         } else {

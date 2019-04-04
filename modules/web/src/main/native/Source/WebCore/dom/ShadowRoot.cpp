@@ -30,7 +30,6 @@
 
 #include "CSSStyleSheet.h"
 #include "ElementTraversal.h"
-#include "ExceptionCode.h"
 #include "HTMLSlotElement.h"
 #include "RenderElement.h"
 #include "RuntimeEnabledFeatures.h"
@@ -38,8 +37,11 @@
 #include "StyleResolver.h"
 #include "StyleScope.h"
 #include "markup.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(ShadowRoot);
 
 struct SameSizeAsShadowRoot : public DocumentFragment, public TreeScope {
     unsigned countersAndFlags[1];
@@ -81,36 +83,40 @@ ShadowRoot::~ShadowRoot()
     willBeDeletedFrom(document());
 
     // We must remove all of our children first before the TreeScope destructor
-    // runs so we don't go through TreeScopeAdopter for each child with a
+    // runs so we don't go through Node::setTreeScopeRecursively for each child with a
     // destructed tree scope in each descendant.
     removeDetachedChildren();
 }
 
-Node::InsertionNotificationRequest ShadowRoot::insertedInto(ContainerNode& insertionPoint)
+Node::InsertedIntoAncestorResult ShadowRoot::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    bool wasInDocument = isConnected();
-    DocumentFragment::insertedInto(insertionPoint);
-    if (insertionPoint.isConnected() && !wasInDocument)
+    DocumentFragment::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    if (insertionType.connectedToDocument)
         document().didInsertInDocumentShadowRoot(*this);
-    return InsertionDone;
+    return InsertedIntoAncestorResult::Done;
 }
 
-void ShadowRoot::removedFrom(ContainerNode& insertionPoint)
+void ShadowRoot::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    DocumentFragment::removedFrom(insertionPoint);
-    if (insertionPoint.isConnected() && !isConnected())
+    DocumentFragment::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    if (removalType.disconnectedFromDocument)
         document().didRemoveInDocumentShadowRoot(*this);
 }
 
-void ShadowRoot::didMoveToNewDocument(Document& oldDocument)
+void ShadowRoot::moveShadowRootToNewParentScope(TreeScope& newScope, Document& newDocument)
 {
-    ASSERT(&document() != &oldDocument);
-    ASSERT(&m_styleScope->document() == &oldDocument);
+    setParentTreeScope(newScope);
+    moveShadowRootToNewDocument(newDocument);
+}
+
+void ShadowRoot::moveShadowRootToNewDocument(Document& newDocument)
+{
+    setDocumentScope(newDocument);
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!parentTreeScope() || &parentTreeScope()->documentScope() == &newDocument);
 
     // Style scopes are document specific.
     m_styleScope = std::make_unique<Style::Scope>(*this);
-
-    DocumentFragment::didMoveToNewDocument(oldDocument);
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(&m_styleScope->document() == &newDocument);
 }
 
 Style::Scope& ShadowRoot::styleScope()
@@ -126,7 +132,7 @@ String ShadowRoot::innerHTML() const
 ExceptionOr<void> ShadowRoot::setInnerHTML(const String& markup)
 {
     if (isOrphan())
-        return Exception { INVALID_ACCESS_ERR };
+        return Exception { InvalidAccessError };
     auto fragment = createFragmentForInnerOuterHTML(*host(), markup, AllowScriptingContent);
     if (fragment.hasException())
         return fragment.releaseException();

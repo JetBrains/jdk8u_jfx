@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,13 +21,15 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
-*/
+ */
+
+#undef IMPL
 
 #include "config.h"
 
 #include <WebCore/HTMLAppletElement.h>
 #include <WebCore/HTMLNames.h>
-#include <WebCore/JSMainThreadExecState.h>
+#include <WebCore/JSExecState.h>
 
 #include <wtf/RefPtr.h>
 #include <wtf/GetPtr.h>
@@ -115,13 +117,13 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLAppletElementImpl_setHeightIm
     IMPL->setAttributeWithoutSynchronization(WebCore::HTMLNames::heightAttr, String(env, value));
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLAppletElementImpl_getHspaceImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLAppletElementImpl_getHspaceImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->getIntegralAttribute(WebCore::HTMLNames::hspaceAttr);
 }
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLAppletElementImpl_setHspaceImpl(JNIEnv* env, jclass, jlong peer, jint value)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLAppletElementImpl_setHspaceImpl(JNIEnv*, jclass, jlong peer, jint value)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->setIntegralAttribute(WebCore::HTMLNames::hspaceAttr, value);
@@ -151,13 +153,13 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLAppletElementImpl_setObjectIm
     IMPL->setAttributeWithoutSynchronization(WebCore::HTMLNames::objectAttr, String(env, value));
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLAppletElementImpl_getVspaceImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLAppletElementImpl_getVspaceImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->getIntegralAttribute(WebCore::HTMLNames::vspaceAttr);
 }
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLAppletElementImpl_setVspaceImpl(JNIEnv* env, jclass, jlong peer, jint value)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLAppletElementImpl_setVspaceImpl(JNIEnv*, jclass, jlong peer, jint value)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->setIntegralAttribute(WebCore::HTMLNames::vspaceAttr, value);

@@ -23,26 +23,28 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-
-#ifndef CoordinatedImageBacking_h
-#define CoordinatedImageBacking_h
+#pragma once
 
 #if USE(COORDINATED_GRAPHICS)
+
 #include "CoordinatedGraphicsState.h"
-#include "CoordinatedSurface.h"
 #include "Image.h"
 #include "Timer.h"
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
 
+namespace Nicosia {
+class Buffer;
+}
+
 namespace WebCore {
 
-class CoordinatedImageBacking : public RefCounted<CoordinatedImageBacking> {
+class WEBCORE_EXPORT CoordinatedImageBacking : public RefCounted<CoordinatedImageBacking> {
 public:
     class Client {
     public:
         virtual void createImageBacking(CoordinatedImageBackingID) = 0;
-        virtual void updateImageBacking(CoordinatedImageBackingID, RefPtr<CoordinatedSurface>&&) = 0;
+        virtual void updateImageBacking(CoordinatedImageBackingID, RefPtr<Nicosia::Buffer>&&) = 0;
         virtual void clearImageBackingContents(CoordinatedImageBackingID) = 0;
         virtual void removeImageBacking(CoordinatedImageBackingID) = 0;
     };
@@ -52,44 +54,42 @@ public:
         virtual bool imageBackingVisible() = 0;
     };
 
-    static PassRefPtr<CoordinatedImageBacking> create(Client*, PassRefPtr<Image>);
+    static Ref<CoordinatedImageBacking> create(Client& client, Ref<Image>&& image)
+    {
+        return adoptRef(*new CoordinatedImageBacking(client, WTFMove(image)));
+    }
     virtual ~CoordinatedImageBacking();
 
-    static CoordinatedImageBackingID getCoordinatedImageBackingID(Image*);
+    static CoordinatedImageBackingID getCoordinatedImageBackingID(Image&);
     CoordinatedImageBackingID id() const { return m_id; }
 
-    void addHost(Host*);
-    void removeHost(Host*);
+    void addHost(Host&);
+    void removeHost(Host&);
 
     // When a new image is updated or an animated gif is progressed, CoordinatedGraphicsLayer calls markDirty().
-    void markDirty();
+    void markDirty() { m_isDirty = true; }
 
     // Create, remove or update its backing.
     void update();
 
 private:
-    CoordinatedImageBacking(Client*, PassRefPtr<Image>);
+    CoordinatedImageBacking(Client&, Ref<Image>&&);
 
-    void releaseSurfaceIfNeeded();
-    void updateVisibilityIfNeeded(bool& changedToVisible);
     void clearContentsTimerFired();
 
-    Client* m_client;
-    RefPtr<Image> m_image;
-    NativeImagePtr m_nativeImagePtr;
-    CoordinatedImageBackingID m_id;
-    Vector<Host*> m_hosts;
+    Client& m_client;
+    HashSet<Host*> m_hosts;
 
-    RefPtr<CoordinatedSurface> m_surface;
+    CoordinatedImageBackingID m_id;
+    Ref<Image> m_image;
+    NativeImagePtr m_nativeImagePtr;
 
     Timer m_clearContentsTimer;
 
-    bool m_isDirty;
-    bool m_isVisible;
-
+    bool m_isDirty { false };
+    bool m_isVisible { false };
 };
 
 } // namespace WebCore
-#endif // USE(COORDINATED_GRAPHICS)
 
-#endif // CoordinatedImageBacking_h
+#endif // USE(COORDINATED_GRAPHICS)

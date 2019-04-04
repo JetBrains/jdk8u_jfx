@@ -18,53 +18,11 @@
  */
 
 #include "config.h"
-
 #include "TextureMapperBackingStore.h"
 
-#include "GraphicsLayer.h"
-#include "ImageBuffer.h"
-#include "TextureMapper.h"
+#include "FloatRect.h"
 
 namespace WebCore {
-
-//utatodo: move to TextureMapperTile.cpp
-#if 0 && PLATFORM(JAVA)
-void TextureMapperTile::updateContents(TextureMapper* textureMapper, GraphicsLayer* layer, const IntRect& dirtyRect)
-{
-    IntRect rect = enclosingIntRect(m_rect);
-    IntRect targetRect = rect;
-    targetRect.intersect(dirtyRect);
-    if (targetRect.isEmpty())
-        return;
-
-    if (!m_texture) {
-        m_texture = textureMapper->createTexture();
-        m_texture->reset(rect.size(), BitmapTexture::SupportsAlpha);
-    }
-
-    BitmapTextureImageBuffer* texture = dynamic_cast<BitmapTextureImageBuffer*>(m_texture.get());
-    ASSERT(texture);
-
-    GraphicsContext* context = texture->graphicsContext();
-    context->save();
-    context->setImageInterpolationQuality(textureMapper->imageInterpolationQuality());
-    context->setTextDrawingMode(textureMapper->textDrawingMode());
-    context->translate(-rect.x(), -rect.y());
-    context->clip(targetRect);
-    context->clearRect(targetRect);
-
-    layer->paintGraphicsLayerContents(*context, targetRect);
-
-    context->restore();
-}
-
-void TextureMapperTiledBackingStore::updateContents(TextureMapper* textureMapper, GraphicsLayer* layer, const FloatSize& totalSize, const IntRect& dirtyRect)
-{
-    createOrDestroyTilesIfNeeded(totalSize, IntSize(2048, 2048), true);
-    for (size_t i = 0; i < m_tiles.size(); ++i)
-        m_tiles[i].updateContents(textureMapper, layer, dirtyRect);
-}
-#endif
 
 unsigned TextureMapperBackingStore::calculateExposedTileEdges(const FloatRect& totalRect, const FloatRect& tileRect)
 {
@@ -80,4 +38,4 @@ unsigned TextureMapperBackingStore::calculateExposedTileEdges(const FloatRect& t
     return exposedEdges;
 }
 
-}
+} // namespace WebCore

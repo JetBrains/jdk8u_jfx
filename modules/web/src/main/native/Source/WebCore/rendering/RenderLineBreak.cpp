@@ -23,6 +23,7 @@
 #include "RenderLineBreak.h"
 
 #include "Document.h"
+#include "FontMetrics.h"
 #include "HTMLElement.h"
 #include "HTMLWBRElement.h"
 #include "InlineElementBox.h"
@@ -32,12 +33,15 @@
 #include "RootInlineBox.h"
 #include "SimpleLineLayoutFunctions.h"
 #include "VisiblePosition.h"
+#include <wtf/IsoMallocInlines.h>
 
 #if PLATFORM(IOS)
 #include "SelectionRect.h"
 #endif
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderLineBreak);
 
 static const int invalidLineHeight = -1;
 
@@ -46,13 +50,6 @@ static const SimpleLineLayout::Layout* simpleLineLayout(const RenderLineBreak& r
     if (!is<RenderBlockFlow>(*renderer.parent()))
         return nullptr;
     return downcast<RenderBlockFlow>(*renderer.parent()).simpleLineLayout();
-}
-
-static void ensureLineBoxes(const RenderLineBreak& renderer)
-{
-    if (!is<RenderBlockFlow>(*renderer.parent()))
-        return;
-    downcast<RenderBlockFlow>(*renderer.parent()).ensureLineBoxes();
 }
 
 RenderLineBreak::RenderLineBreak(HTMLElement& element, RenderStyle&& style)
@@ -129,6 +126,13 @@ void RenderLineBreak::dirtyLineBoxes(bool fullLayout)
     m_inlineBoxWrapper->dirtyLineBoxes();
 }
 
+void RenderLineBreak::ensureLineBoxes()
+{
+    if (!is<RenderBlockFlow>(*parent()))
+        return;
+    downcast<RenderBlockFlow>(*parent()).ensureLineBoxes();
+}
+
 void RenderLineBreak::deleteLineBoxesBeforeSimpleLineLayout()
 {
     delete m_inlineBoxWrapper;
@@ -150,16 +154,16 @@ bool RenderLineBreak::canBeSelectionLeaf() const
     return true;
 }
 
-VisiblePosition RenderLineBreak::positionForPoint(const LayoutPoint&, const RenderRegion*)
+VisiblePosition RenderLineBreak::positionForPoint(const LayoutPoint&, const RenderFragmentContainer*)
 {
-    ensureLineBoxes(*this);
+    ensureLineBoxes();
     return createVisiblePosition(0, DOWNSTREAM);
 }
 
 void RenderLineBreak::setSelectionState(SelectionState state)
 {
     if (state != SelectionNone)
-        ensureLineBoxes(*this);
+        ensureLineBoxes();
     RenderBoxModelObject::setSelectionState(state);
     if (!m_inlineBoxWrapper)
         return;
@@ -228,7 +232,7 @@ void RenderLineBreak::updateFromStyle()
 #if PLATFORM(IOS)
 void RenderLineBreak::collectSelectionRects(Vector<SelectionRect>& rects, unsigned, unsigned)
 {
-    ensureLineBoxes(*this);
+    ensureLineBoxes();
     InlineElementBox* box = m_inlineBoxWrapper;
     if (!box)
         return;

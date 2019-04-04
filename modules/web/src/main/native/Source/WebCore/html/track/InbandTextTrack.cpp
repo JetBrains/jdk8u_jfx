@@ -51,9 +51,12 @@ Ref<InbandTextTrack> InbandTextTrack::create(ScriptExecutionContext& context, Te
 }
 
 InbandTextTrack::InbandTextTrack(ScriptExecutionContext& context, TextTrackClient& client, InbandTextTrackPrivate& trackPrivate)
-    : TextTrack(&context, &client, emptyAtom, trackPrivate.id(), trackPrivate.label(), trackPrivate.language(), InBand)
+    : TextTrack(&context, &client, emptyAtom(), trackPrivate.id(), trackPrivate.label(), trackPrivate.language(), InBand)
     , m_private(trackPrivate)
 {
+#if !RELEASE_LOG_DISABLED
+    m_private->setLogger(logger(), logIdentifier());
+#endif
     m_private->setClient(this);
     updateKindFromPrivate();
 }
@@ -153,7 +156,7 @@ void InbandTextTrack::languageChanged(const AtomicString& language)
 
 void InbandTextTrack::willRemove()
 {
-    auto* element = mediaElement();
+    auto element = makeRefPtr(mediaElement());
     if (!element)
         return;
     element->removeTextTrack(*this);
@@ -190,6 +193,15 @@ MediaTime InbandTextTrack::startTimeVariance() const
 {
     return m_private->startTimeVariance();
 }
+
+void InbandTextTrack::setMediaElement(HTMLMediaElement* element)
+{
+    TrackBase::setMediaElement(element);
+#if !RELEASE_LOG_DISABLED
+    m_private->setLogger(logger(), logIdentifier());
+#endif
+}
+
 
 } // namespace WebCore
 

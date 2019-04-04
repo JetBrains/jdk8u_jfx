@@ -35,7 +35,7 @@
 #include "runtime_array.h"
 #include "runtime_object.h"
 #include "runtime_root.h"
-#include <runtime/Error.h>
+#include <JavaScriptCore/Error.h>
 
 #include "Logging.h"
 
@@ -43,16 +43,16 @@ using namespace JSC;
 using namespace JSC::Bindings;
 using namespace WebCore;
 
-JSValue JavaArray::convertJObjectToArray(ExecState* exec, jobject anObject, const char* type, PassRefPtr<RootObject> rootObject, jobject accessControlContext)
+JSValue JavaArray::convertJObjectToArray(ExecState* exec, jobject anObject, const char* type, RefPtr<RootObject>&& rootObject, jobject accessControlContext)
 {
     if (type[0] != '[')
         return jsUndefined();
 
-    return RuntimeArray::create(exec, new JavaArray(anObject, type, rootObject, accessControlContext));
+    return RuntimeArray::create(exec, new JavaArray(anObject, type, WTFMove(rootObject), accessControlContext));
 }
 
-JavaArray::JavaArray(jobject array, const char* type, PassRefPtr<RootObject> rootObject, jobject accessControlContext)
-    : Array(rootObject)
+JavaArray::JavaArray(jobject array, const char* type, RefPtr<RootObject>&& rootObject, jobject accessControlContext)
+    : Array(WTFMove(rootObject))
 {
     m_array = JobjectWrapper::create(array);
 
@@ -146,6 +146,7 @@ bool JavaArray::setValueAt(ExecState* exec, unsigned index, JSValue aValue) cons
     case JavaTypeLong:
         {
             env->SetLongArrayRegion(static_cast<jlongArray>(javaArray()), index, 1, &aJValue.j);
+            break;
         }
 
     case JavaTypeFloat:

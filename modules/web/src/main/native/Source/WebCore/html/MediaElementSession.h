@@ -28,6 +28,7 @@
 #if ENABLE(VIDEO)
 
 #include "MediaPlayer.h"
+#include "MediaProducer.h"
 #include "PlatformMediaSession.h"
 #include "SuccessOr.h"
 #include "Timer.h"
@@ -44,49 +45,60 @@ enum class MediaPlaybackDenialReason {
     UserGestureRequired,
     FullscreenRequired,
     PageConsentRequired,
+    InvalidState,
 };
 
 class Document;
 class HTMLMediaElement;
 class SourceBuffer;
 
-class MediaElementSession final : public PlatformMediaSession {
+class MediaElementSession final : public PlatformMediaSession
+{
     WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit MediaElementSession(HTMLMediaElement&);
-    virtual ~MediaElementSession() { }
+    virtual ~MediaElementSession() = default;
 
     void registerWithDocument(Document&);
     void unregisterWithDocument(Document&);
 
-    SuccessOr<MediaPlaybackDenialReason> playbackPermitted(const HTMLMediaElement&) const;
+    void clientWillBeginAutoplaying() final;
+    bool clientWillBeginPlayback() final;
+    bool clientWillPausePlayback() final;
+
+    void visibilityChanged();
+    void isVisibleInViewportChanged();
+    void inActiveDocumentChanged();
+
+    SuccessOr<MediaPlaybackDenialReason> playbackPermitted() const;
     bool autoplayPermitted() const;
-    bool dataLoadingPermitted(const HTMLMediaElement&) const;
-    bool fullscreenPermitted(const HTMLMediaElement&) const;
-    bool pageAllowsDataLoading(const HTMLMediaElement&) const;
-    bool pageAllowsPlaybackAfterResuming(const HTMLMediaElement&) const;
+    bool dataLoadingPermitted() const;
+    bool dataBufferingPermitted() const;
+    bool fullscreenPermitted() const;
+    bool pageAllowsDataLoading() const;
+    bool pageAllowsPlaybackAfterResuming() const;
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
-    void showPlaybackTargetPicker(const HTMLMediaElement&);
-    bool hasWirelessPlaybackTargets(const HTMLMediaElement&) const;
+    void showPlaybackTargetPicker();
+    bool hasWirelessPlaybackTargets() const;
 
-    bool wirelessVideoPlaybackDisabled(const HTMLMediaElement&) const;
-    void setWirelessVideoPlaybackDisabled(const HTMLMediaElement&, bool);
+    bool wirelessVideoPlaybackDisabled() const;
+    void setWirelessVideoPlaybackDisabled(bool);
 
-    void setHasPlaybackTargetAvailabilityListeners(const HTMLMediaElement&, bool);
+    void setHasPlaybackTargetAvailabilityListeners(bool);
 
     bool canPlayToWirelessPlaybackTarget() const override;
     bool isPlayingToWirelessPlaybackTarget() const override;
 
-    void mediaStateDidChange(const HTMLMediaElement&, MediaProducer::MediaStateFlags);
+    void mediaStateDidChange(MediaProducer::MediaStateFlags);
 #endif
 
-    bool requiresFullscreenForVideoPlayback(const HTMLMediaElement&) const;
-    WEBCORE_EXPORT bool allowsPictureInPicture(const HTMLMediaElement&) const;
-    MediaPlayer::Preload effectivePreloadForElement(const HTMLMediaElement&) const;
-    bool allowsAutomaticMediaDataLoading(const HTMLMediaElement&) const;
+    bool requiresFullscreenForVideoPlayback() const;
+    WEBCORE_EXPORT bool allowsPictureInPicture() const;
+    MediaPlayer::Preload effectivePreloadForElement() const;
+    bool allowsAutomaticMediaDataLoading() const;
 
-    void mediaEngineUpdated(const HTMLMediaElement&);
+    void mediaEngineUpdated();
 
     void resetPlaybackSessionState() override;
 
@@ -108,6 +120,7 @@ public:
         OverrideUserGestureRequirementForMainContent = 1 << 12,
         RequireUserGestureToControlControlsManager = 1 << 13,
         RequirePlaybackToControlControlsManager = 1 << 14,
+        RequireUserGestureForVideoDueToLowPowerMode = 1 << 15,
         AllRestrictions = ~NoRestrictions,
     };
     typedef unsigned BehaviorRestrictions;
@@ -129,7 +142,7 @@ public:
     enum class PlaybackControlsPurpose { ControlsManager, NowPlaying };
     bool canShowControlsManager(PlaybackControlsPurpose) const;
     bool isLargeEnoughForMainContent(MediaSessionMainContentPurpose) const;
-    double mostRecentUserInteractionTime() const;
+    MonotonicTime mostRecentUserInteractionTime() const;
 
     bool allowsPlaybackControlsForAutoplayingAudio() const;
     bool allowsNowPlayingControlsVisibility() const override;
@@ -140,6 +153,11 @@ public:
             || type == Audio
             || type == VideoAudio;
     }
+
+#if !RELEASE_LOG_DISABLED
+    const void* logIdentifier() const final { return m_logIdentifier; }
+    const char* logClassName() const final { return "MediaElementSession"; }
+#endif
 
 private:
 
@@ -157,8 +175,15 @@ private:
     bool updateIsMainContent() const;
     void mainContentCheckTimerFired();
 
+    void scheduleClientDataBufferingCheck();
+    void clientDataBufferingTimerFired();
+    void updateClientDataBuffering();
+
     HTMLMediaElement& m_element;
     BehaviorRestrictions m_restrictions;
+
+    bool m_elementIsHiddenUntilVisibleInViewport { false };
+    bool m_elementIsHiddenBecauseItWasRemovedFromDOM { false };
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
     mutable Timer m_targetAvailabilityChangedTimer;
@@ -170,10 +195,15 @@ private:
     bool m_hasPlaybackTargetAvailabilityListeners { false };
 #endif
 
-    double m_mostRecentUserInteractionTime { 0 };
+    MonotonicTime m_mostRecentUserInteractionTime;
 
     mutable bool m_isMainContent { false };
     Timer m_mainContentCheckTimer;
+    Timer m_clientDataBufferingTimer;
+
+#if !RELEASE_LOG_DISABLED
+    const void* m_logIdentifier;
+#endif
 };
 
 } // namespace WebCore

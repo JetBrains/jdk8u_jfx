@@ -39,6 +39,7 @@
 #include "ScriptExecutionContext.h"
 #include "StyleProperties.h"
 #include "TextTrackCue.h"
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/MathExtras.h>
 
 namespace WebCore {
@@ -47,6 +48,7 @@ namespace WebCore {
 const static int DEFAULTCAPTIONFONTSIZE = 10;
 
 class TextTrackCueGenericBoxElement final : public VTTCueBox {
+    WTF_MAKE_ISO_ALLOCATED_INLINE(TextTrackCueGenericBoxElement);
 public:
     static Ref<TextTrackCueGenericBoxElement> create(Document& document, TextTrackCueGeneric& cue)
     {
@@ -67,9 +69,9 @@ TextTrackCueGenericBoxElement::TextTrackCueGenericBoxElement(Document& document,
 void TextTrackCueGenericBoxElement::applyCSSProperties(const IntSize& videoSize)
 {
     setInlineStyleProperty(CSSPropertyPosition, CSSValueAbsolute);
-    setInlineStyleProperty(CSSPropertyUnicodeBidi, CSSValueWebkitPlaintext);
+    setInlineStyleProperty(CSSPropertyUnicodeBidi, CSSValuePlaintext);
 
-    TextTrackCueGeneric* cue = static_cast<TextTrackCueGeneric*>(getCue());
+    RefPtr<TextTrackCueGeneric> cue = static_cast<TextTrackCueGeneric*>(getCue());
     Ref<HTMLSpanElement> cueElement = cue->element();
 
     CSSValueID alignment = cue->getCSSAlignment();
@@ -110,10 +112,10 @@ void TextTrackCueGenericBoxElement::applyCSSProperties(const IntSize& videoSize)
         maxSize = 100.0 - textPosition;
 
     if (cue->getWritingDirection() == VTTCue::Horizontal) {
-        setInlineStyleProperty(CSSPropertyMinWidth, "-webkit-min-content");
+        setInlineStyleProperty(CSSPropertyMinWidth, "min-content");
         setInlineStyleProperty(CSSPropertyMaxWidth, maxSize, CSSPrimitiveValue::CSS_PERCENTAGE);
     } else {
-        setInlineStyleProperty(CSSPropertyMinHeight, "-webkit-min-content");
+        setInlineStyleProperty(CSSPropertyMinHeight, "min-content");
         setInlineStyleProperty(CSSPropertyMaxHeight, maxSize, CSSPrimitiveValue::CSS_PERCENTAGE);
     }
 
@@ -189,8 +191,6 @@ void TextTrackCueGeneric::setFontSize(int fontSize, const IntSize& videoSize, bo
     if (fontSizeMultiplier())
         size *= fontSizeMultiplier() / 100;
     displayTreeInternal().setInlineStyleProperty(CSSPropertyFontSize, lround(size), CSSPrimitiveValue::CSS_PX);
-
-    LOG(Media, "TextTrackCueGeneric::setFontSize - setting cue font size to %li", lround(size));
 }
 
 bool TextTrackCueGeneric::cueContentsMatch(const TextTrackCue& cue) const
@@ -266,6 +266,28 @@ bool TextTrackCueGeneric::isPositionedAbove(const TextTrackCue* that) const
         return startTime() > that->startTime();
 
     return VTTCue::isOrderedBefore(that);
+}
+
+String TextTrackCueGeneric::toJSONString() const
+{
+    auto object = JSON::Object::create();
+
+    toJSON(object.get());
+
+    if (m_foregroundColor.isValid())
+        object->setString("foregroundColor"_s, m_foregroundColor.serialized());
+    if (m_backgroundColor.isValid())
+        object->setString("backgroundColor"_s, m_backgroundColor.serialized());
+    if (m_highlightColor.isValid())
+        object->setString("highlightColor"_s, m_highlightColor.serialized());
+    if (m_baseFontSizeRelativeToVideoHeight)
+        object->setDouble("relativeFontSize"_s, m_baseFontSizeRelativeToVideoHeight);
+    if (m_fontSizeMultiplier)
+        object->setDouble("fontSizeMultiplier"_s, m_fontSizeMultiplier);
+    if (!m_fontName.isEmpty())
+        object->setString("font"_s, m_fontName);
+
+    return object->toJSONString();
 }
 
 } // namespace WebCore

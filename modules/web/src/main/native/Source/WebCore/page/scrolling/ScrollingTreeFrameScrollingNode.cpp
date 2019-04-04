@@ -32,18 +32,17 @@
 #include "Logging.h"
 #include "ScrollingStateTree.h"
 #include "ScrollingTree.h"
-#include "TextStream.h"
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
-ScrollingTreeFrameScrollingNode::ScrollingTreeFrameScrollingNode(ScrollingTree& scrollingTree, ScrollingNodeID nodeID)
-    : ScrollingTreeScrollingNode(scrollingTree, FrameScrollingNode, nodeID)
+ScrollingTreeFrameScrollingNode::ScrollingTreeFrameScrollingNode(ScrollingTree& scrollingTree, ScrollingNodeType nodeType, ScrollingNodeID nodeID)
+    : ScrollingTreeScrollingNode(scrollingTree, nodeType, nodeID)
 {
+    ASSERT(isFrameScrollingNode());
 }
 
-ScrollingTreeFrameScrollingNode::~ScrollingTreeFrameScrollingNode()
-{
-}
+ScrollingTreeFrameScrollingNode::~ScrollingTreeFrameScrollingNode() = default;
 
 void ScrollingTreeFrameScrollingNode::commitStateBeforeChildren(const ScrollingStateNode& stateNode)
 {
@@ -126,9 +125,10 @@ FloatSize ScrollingTreeFrameScrollingNode::viewToContentsOffset(const FloatPoint
     return toFloatSize(scrollPosition) - FloatSize(0, headerHeight() + topContentInset());
 }
 
-void ScrollingTreeFrameScrollingNode::dumpProperties(TextStream& ts, ScrollingStateTreeAsTextBehavior) const
+void ScrollingTreeFrameScrollingNode::dumpProperties(TextStream& ts, ScrollingStateTreeAsTextBehavior behavior) const
 {
     ts << "frame scrolling node";
+    ScrollingTreeScrollingNode::dumpProperties(ts, behavior);
 
     ts.dumpProperty("layout viewport", m_layoutViewport);
     ts.dumpProperty("min layoutViewport origin", m_minLayoutViewportOrigin);

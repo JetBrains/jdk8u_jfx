@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -127,8 +127,8 @@ static inline char *_runCommand(char *command)
 static inline char *_getCommandPath(char *command)
 {
     static char *full = NULL;
-    full = realloc(full, strlen("whereis ")+strlen(command)+1);
-    strcpy(full, "whereis ");
+    full = realloc(full, strlen("/usr/bin/whereis ")+strlen(command)+1);
+    strcpy(full, "/usr/bin/whereis ");
     strcat(full, command);
     char *path = _runCommand(full);
     if ((path != NULL) && (strlen(path) > 0))
@@ -178,6 +178,7 @@ void printLoadedFiles(FILE *stream)
         }
         _sortArray(array);
         _printArray(stream, "Loaded %d files\n", array);
+        free(command);
     }
 }
 

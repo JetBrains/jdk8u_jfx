@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright (c) 2014, 2016 Apple Inc. All rights reserved.
+# Copyright (c) 2014-2018 Apple Inc. All rights reserved.
 # Copyright (c) 2014 University of Washington. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -50,13 +50,8 @@ class CppProtocolTypesHeaderGenerator(CppGenerator):
         domains = self.domains_to_generate()
         self.calculate_types_requiring_shape_assertions(domains)
 
-        headers = set([
-            '<inspector/InspectorProtocolTypes.h>',
-            '<wtf/Assertions.h>',
-        ])
-
         header_args = {
-            'includes': '\n'.join(['#include ' + header for header in sorted(headers)]),
+            'includes': self._generate_secondary_header_includes(),
             'typedefs': '',
         }
 
@@ -78,6 +73,14 @@ class CppProtocolTypesHeaderGenerator(CppGenerator):
     # Private methods.
 
     # FIXME: move builders out of classes, uncomment forward declaration
+
+    def _generate_secondary_header_includes(self):
+        header_includes = [
+            (["JavaScriptCore", "WebKit"], ("JavaScriptCore", "inspector/InspectorProtocolTypes.h")),
+            (["JavaScriptCore", "WebKit"], ("WTF", "wtf/Assertions.h"))
+        ]
+
+        return '\n'.join(self.generate_includes_from_entries(header_includes))
 
     def _generate_forward_declarations(self, domains):
         sections = []
@@ -141,7 +144,7 @@ class CppProtocolTypesHeaderGenerator(CppGenerator):
             typedef_lines = []
             if len(declaration.description) > 0:
                 typedef_lines.append('/* %s */' % declaration.description)
-            typedef_lines.append('typedef Inspector::Protocol::Array<%s> %s;' % (element_type, declaration.type_name))
+            typedef_lines.append('typedef JSON::ArrayOf<%s> %s;' % (element_type, declaration.type_name))
             sections.append('\n'.join(typedef_lines))
 
         lines = []
@@ -205,7 +208,7 @@ class CppProtocolTypesHeaderGenerator(CppGenerator):
         lines = []
         if len(type_declaration.description) > 0:
             lines.append('/* %s */' % type_declaration.description)
-        base_class = 'Inspector::InspectorObject'
+        base_class = 'JSON::Object'
         if not Generator.type_has_open_fields(type_declaration.type):
             base_class = base_class + 'Base'
         lines.append('class %s : public %s {' % (object_name, base_class))
@@ -236,7 +239,8 @@ class CppProtocolTypesHeaderGenerator(CppGenerator):
         if Generator.type_has_open_fields(type_declaration.type):
             lines.append('')
             lines.append('    // Property names for type generated as open.')
-            for type_member in type_declaration.type_members:
+            open_members = Generator.open_fields(type_declaration)
+            for type_member in open_members:
                 export_macro = self.model().framework.setting('export_macro', None)
                 lines.append('    %s static const char* %s;' % (export_macro, ucfirst(type_member.member_name)))
 
@@ -304,9 +308,9 @@ class CppProtocolTypesHeaderGenerator(CppGenerator):
         lines.append('            COMPILE_ASSERT(!(STATE & %(camelName)sSet), property_%(name)s_already_set);' % setter_args)
 
         if isinstance(type_member.type, EnumType):
-            lines.append('            m_result->%(keyedSet)s(ASCIILiteral("%(name)s"), Inspector::Protocol::%(helpersNamespace)s::getEnumConstantValue(value));' % setter_args)
+            lines.append('            m_result->%(keyedSet)s("%(name)s"_s, Inspector::Protocol::%(helpersNamespace)s::getEnumConstantValue(value));' % setter_args)
         else:
-            lines.append('            m_result->%(keyedSet)s(ASCIILiteral("%(name)s"), value);' % setter_args)
+            lines.append('            m_result->%(keyedSet)s("%(name)s"_s, value);' % setter_args)
         lines.append('            return castState<%(camelName)sSet>();' % setter_args)
         lines.append('        }')
         return '\n'.join(lines)
@@ -325,11 +329,11 @@ class CppProtocolTypesHeaderGenerator(CppGenerator):
         lines.append('    void set%(camelName)s(%(parameterType)s value)' % setter_args)
         lines.append('    {')
         if isinstance(type_member.type, EnumType):
-            lines.append('        InspectorObjectBase::%(keyedSet)s(ASCIILiteral("%(name)s"), Inspector::Protocol::%(helpersNamespace)s::getEnumConstantValue(value));' % setter_args)
+            lines.append('        JSON::ObjectBase::%(keyedSet)s("%(name)s"_s, Inspector::Protocol::%(helpersNamespace)s::getEnumConstantValue(value));' % setter_args)
         elif CppGenerator.should_use_references_for_type(type_member.type):
-            lines.append('        InspectorObjectBase::%(keyedSet)s(ASCIILiteral("%(name)s"), WTFMove(value));' % setter_args)
+            lines.append('        JSON::ObjectBase::%(keyedSet)s("%(name)s"_s, WTFMove(value));' % setter_args)
         else:
-            lines.append('        InspectorObjectBase::%(keyedSet)s(ASCIILiteral("%(name)s"), value);' % setter_args)
+            lines.append('        JSON::ObjectBase::%(keyedSet)s("%(name)s"_s, value);' % setter_args)
         lines.append('    }')
         return '\n'.join(lines)
 
@@ -360,10 +364,8 @@ class CppProtocolTypesHeaderGenerator(CppGenerator):
         for argument in type_arguments:
             lines.append('template<> %s BindingTraits<%s> {' % (' '.join(struct_keywords), argument[0]))
             if argument[1]:
-                lines.append('static RefPtr<%s> runtimeCast(RefPtr<Inspector::InspectorValue>&& value);' % argument[0])
-            lines.append('#if !ASSERT_DISABLED')
-            lines.append('%s assertValueHasExpectedType(Inspector::InspectorValue*);' % ' '.join(function_keywords))
-            lines.append('#endif // !ASSERT_DISABLED')
+                lines.append('static RefPtr<%s> runtimeCast(RefPtr<JSON::Value>&& value);' % argument[0])
+            lines.append('%s assertValueHasExpectedType(JSON::Value*);' % ' '.join(function_keywords))
             lines.append('};')
         return '\n'.join(lines)
 

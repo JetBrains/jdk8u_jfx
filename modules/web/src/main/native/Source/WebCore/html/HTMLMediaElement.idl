@@ -71,7 +71,7 @@ typedef (
     readonly attribute boolean seeking;
 
     // playback state
-    [ImplementedAs=currentTimeForBindings, SetterMayThrowException] attribute unrestricted double currentTime;
+    [ImplementedAs=currentTimeForBindings] attribute unrestricted double currentTime;
     readonly attribute unrestricted double duration;
     Date getStartDate();
     readonly attribute boolean paused;
@@ -88,7 +88,7 @@ typedef (
 
     // controls
     attribute boolean controls;
-    [SetterMayThrowException] attribute double volume;
+    attribute double volume;
     attribute boolean muted;
     [Reflect=muted] attribute boolean defaultMuted;
 
@@ -102,17 +102,17 @@ typedef (
     [Conditional=MEDIA_STATISTICS] readonly attribute unsigned long webkitAudioDecodedByteCount;
     [Conditional=MEDIA_STATISTICS] readonly attribute unsigned long webkitVideoDecodedByteCount;
 
-    [Conditional=LEGACY_ENCRYPTED_MEDIA] readonly attribute WebKitMediaKeys webkitKeys;
-    [Conditional=LEGACY_ENCRYPTED_MEDIA] void webkitSetMediaKeys(WebKitMediaKeys? mediaKeys);
+    [Conditional=LEGACY_ENCRYPTED_MEDIA, EnabledAtRuntime=LegacyEncryptedMediaAPI] readonly attribute WebKitMediaKeys webkitKeys;
+    [Conditional=LEGACY_ENCRYPTED_MEDIA, EnabledAtRuntime=LegacyEncryptedMediaAPI] void webkitSetMediaKeys(WebKitMediaKeys? mediaKeys);
     [Conditional=ENCRYPTED_MEDIA, EnabledAtRuntime=EncryptedMediaAPI] readonly attribute MediaKeys mediaKeys;
     [Conditional=ENCRYPTED_MEDIA, EnabledAtRuntime=EncryptedMediaAPI] attribute EventHandler onencrypted;
     [Conditional=ENCRYPTED_MEDIA, EnabledAtRuntime=EncryptedMediaAPI] attribute EventHandler onwaitingforkey;
     [Conditional=ENCRYPTED_MEDIA, EnabledAtRuntime=EncryptedMediaAPI] Promise<void> setMediaKeys(MediaKeys? mediaKeys);
 
     [Conditional=VIDEO_TRACK, MayThrowException] TextTrack addTextTrack(DOMString kind, optional DOMString label = "", optional DOMString language = "");
-    [Conditional=VIDEO_TRACK] readonly attribute AudioTrackList audioTracks;
-    [Conditional=VIDEO_TRACK] readonly attribute TextTrackList textTracks;
-    [Conditional=VIDEO_TRACK] readonly attribute VideoTrackList videoTracks;
+    [Conditional=VIDEO_TRACK, ImplementedAs=ensureAudioTracks] readonly attribute AudioTrackList audioTracks;
+    [Conditional=VIDEO_TRACK, ImplementedAs=ensureTextTracks] readonly attribute TextTrackList textTracks;
+    [Conditional=VIDEO_TRACK, ImplementedAs=ensureVideoTracks] readonly attribute VideoTrackList videoTracks;
 
     [Reflect] attribute DOMString mediaGroup;
 

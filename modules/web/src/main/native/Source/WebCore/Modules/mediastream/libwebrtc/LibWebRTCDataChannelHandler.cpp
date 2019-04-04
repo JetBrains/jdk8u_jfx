@@ -38,18 +38,17 @@ LibWebRTCDataChannelHandler::~LibWebRTCDataChannelHandler()
         m_channel->UnregisterObserver();
 }
 
-void LibWebRTCDataChannelHandler::setClient(RTCDataChannelHandlerClient* client)
+void LibWebRTCDataChannelHandler::setClient(RTCDataChannelHandlerClient& client)
 {
-    m_client = client;
-    if (m_client)
-        m_channel->RegisterObserver(this);
-    else
-        m_channel->UnregisterObserver();
+    ASSERT(!m_client);
+    m_client = &client;
+    m_channel->RegisterObserver(this);
 }
 
 bool LibWebRTCDataChannelHandler::sendStringData(const String& text)
 {
-    return m_channel->Send({rtc::CopyOnWriteBuffer(text.utf8().data(), text.length()), false});
+    auto utf8Text = text.utf8();
+    return m_channel->Send({ rtc::CopyOnWriteBuffer(utf8Text.data(), utf8Text.length()), false });
 }
 
 bool LibWebRTCDataChannelHandler::sendRawData(const char* data, size_t length)
@@ -59,27 +58,33 @@ bool LibWebRTCDataChannelHandler::sendRawData(const char* data, size_t length)
 
 void LibWebRTCDataChannelHandler::close()
 {
+    if (m_client) {
+        m_channel->UnregisterObserver();
+        m_client = nullptr;
+    }
     m_channel->Close();
 }
 
 void LibWebRTCDataChannelHandler::OnStateChange()
 {
-    RTCDataChannel::ReadyState state;
+    if (!m_client)
+        return;
+
+    RTCDataChannelState state;
     switch (m_channel->state()) {
     case webrtc::DataChannelInterface::kConnecting:
-        state = RTCDataChannel::ReadyStateConnecting;
+        state = RTCDataChannelState::Connecting;
         break;
     case webrtc::DataChannelInterface::kOpen:
-        state = RTCDataChannel::ReadyStateOpen;
+        state = RTCDataChannelState::Open;
         break;
     case webrtc::DataChannelInterface::kClosing:
-        state = RTCDataChannel::ReadyStateClosing;
+        state = RTCDataChannelState::Closing;
         break;
     case webrtc::DataChannelInterface::kClosed:
-        state = RTCDataChannel::ReadyStateClosed;
+        state = RTCDataChannelState::Closed;
         break;
     }
-    ASSERT(m_client);
     callOnMainThread([protectedClient = makeRef(*m_client), state] {
         protectedClient->didChangeReadyState(state);
     });
@@ -87,25 +92,29 @@ void LibWebRTCDataChannelHandler::OnStateChange()
 
 void LibWebRTCDataChannelHandler::OnMessage(const webrtc::DataBuffer& buffer)
 {
-    ASSERT(m_client);
+    if (!m_client)
+        return;
+
     std::unique_ptr<webrtc::DataBuffer> protectedBuffer(new webrtc::DataBuffer(buffer));
     callOnMainThread([protectedClient = makeRef(*m_client), buffer = WTFMove(protectedBuffer)] {
-        // FIXME: Ensure this is correct by adding some tests with non-ASCII characters.
-        const char* data = reinterpret_cast<const char*>(buffer->data.data());
+        const char* data = reinterpret_cast<const char*>(buffer->data.data<char>());
         if (buffer->binary)
             protectedClient->didReceiveRawData(data, buffer->size());
         else
-            protectedClient->didReceiveStringData(String(data, buffer->size()));
+            protectedClient->didReceiveStringData(String::fromUTF8(data, buffer->size()));
     });
 }
 
 void LibWebRTCDataChannelHandler::OnBufferedAmountChange(uint64_t previousAmount)
 {
+    if (!m_client)
+        return;
+
     if (previousAmount <= m_channel->buffered_amount())
         return;
-    ASSERT(m_client);
-    callOnMainThread([protectedClient = makeRef(*m_client)] {
-        protectedClient->bufferedAmountIsDecreasing();
+
+    callOnMainThread([protectedClient = makeRef(*m_client), amount = m_channel->buffered_amount()] {
+        protectedClient->bufferedAmountIsDecreasing(static_cast<size_t>(amount));
     });
 }
 

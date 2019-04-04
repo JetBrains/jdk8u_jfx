@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,7 +34,9 @@
 
 namespace JSC { namespace B3 {
 
-using namespace Air;
+using Arg = Air::Arg;
+using Inst = Air::Inst;
+using Tmp = Air::Tmp;
 
 StackmapSpecial::StackmapSpecial()
 {
@@ -74,7 +76,7 @@ RegisterSet StackmapSpecial::extraEarlyClobberedRegs(Inst& inst)
 void StackmapSpecial::forEachArgImpl(
     unsigned numIgnoredB3Args, unsigned numIgnoredAirArgs,
     Inst& inst, RoleMode roleMode, std::optional<unsigned> firstRecoverableIndex,
-    const ScopedLambda<Inst::EachArgCallback>& callback)
+    const ScopedLambda<Inst::EachArgCallback>& callback, std::optional<Width> optionalDefArgWidth)
 {
     StackmapValue* value = inst.origin->as<StackmapValue>();
     ASSERT(value);
@@ -83,6 +85,7 @@ void StackmapSpecial::forEachArgImpl(
     ASSERT(inst.args.size() >= numIgnoredAirArgs);
     ASSERT(value->children().size() >= numIgnoredB3Args);
     ASSERT(inst.args.size() - numIgnoredAirArgs >= value->children().size() - numIgnoredB3Args);
+    ASSERT(inst.args[0].kind() == Arg::Kind::Special);
 
     for (unsigned i = 0; i < value->children().size() - numIgnoredB3Args; ++i) {
         Arg& arg = inst.args[i + numIgnoredAirArgs];
@@ -107,6 +110,9 @@ void StackmapSpecial::forEachArgImpl(
             case ValueRep::Constant:
                 role = Arg::Use;
                 break;
+            case ValueRep::SomeRegisterWithClobber:
+                role = Arg::UseDef;
+                break;
             case ValueRep::LateRegister:
                 role = Arg::LateUse;
                 break;
@@ -120,6 +126,20 @@ void StackmapSpecial::forEachArgImpl(
                 RELEASE_ASSERT_NOT_REACHED();
                 break;
             }
+
+            // If the Def'ed arg has a smaller width than the a stackmap value, then we may not
+            // be able to recover the stackmap value. So, force LateColdUse to preserve the
+            // original stackmap value across the Special operation.
+            if (!Arg::isLateUse(role) && optionalDefArgWidth && *optionalDefArgWidth < child.value()->resultWidth()) {
+                // The role can only be some kind of def if we did SomeRegisterWithClobber, which is
+                // only allowed for patchpoints. Patchpoints don't use the defArgWidth feature.
+                RELEASE_ASSERT(!Arg::isAnyDef(role));
+
+                if (Arg::isWarmUse(role))
+                    role = Arg::LateUse;
+                else
+                    role = Arg::LateColdUse;
+            }
             break;
         case ForceLateUse:
             role = Arg::LateColdUse;
@@ -127,7 +147,7 @@ void StackmapSpecial::forEachArgImpl(
         }
 
         Type type = child.value()->type();
-        callback(arg, role, Arg::typeForB3Type(type), Arg::widthForB3Type(type));
+        callback(arg, role, bankForType(type), widthForType(type));
     }
 }
 
@@ -199,8 +219,7 @@ bool StackmapSpecial::admitsStackImpl(
     return false;
 }
 
-Vector<ValueRep> StackmapSpecial::repsImpl(
-    GenerationContext& context, unsigned numIgnoredB3Args, unsigned numIgnoredAirArgs, Inst& inst)
+Vector<ValueRep> StackmapSpecial::repsImpl(Air::GenerationContext& context, unsigned numIgnoredB3Args, unsigned numIgnoredAirArgs, Inst& inst)
 {
     Vector<ValueRep> result;
     for (unsigned i = 0; i < inst.origin->numChildren() - numIgnoredB3Args; ++i)
@@ -233,6 +252,7 @@ bool StackmapSpecial::isArgValidForRep(Air::Code& code, const Air::Arg& arg, con
         // We already verified by isArgValidForValue().
         return true;
     case ValueRep::SomeRegister:
+    case ValueRep::SomeRegisterWithClobber:
     case ValueRep::SomeEarlyRegister:
         return arg.isTmp();
     case ValueRep::LateRegister:
@@ -241,7 +261,7 @@ bool StackmapSpecial::isArgValidForRep(Air::Code& code, const Air::Arg& arg, con
     case ValueRep::StackArgument:
         if (arg == Arg::callArg(rep.offsetFromSP()))
             return true;
-        if (arg.isAddr() && code.frameSize()) {
+        if ((arg.isAddr() || arg.isExtendedOffsetAddr()) && code.frameSize()) {
             if (arg.base() == Tmp(GPRInfo::callFrameRegister)
                 && arg.offset() == rep.offsetFromSP() - code.frameSize())
                 return true;
@@ -256,7 +276,7 @@ bool StackmapSpecial::isArgValidForRep(Air::Code& code, const Air::Arg& arg, con
     }
 }
 
-ValueRep StackmapSpecial::repForArg(Code& code, const Arg& arg)
+ValueRep StackmapSpecial::repForArg(Air::Code& code, const Arg& arg)
 {
     switch (arg.kind()) {
     case Arg::Tmp:
@@ -266,11 +286,14 @@ ValueRep StackmapSpecial::repForArg(Code& code, const Arg& arg)
     case Arg::BigImm:
         return ValueRep::constant(arg.value());
         break;
+    case Arg::ExtendedOffsetAddr:
+        ASSERT(arg.base() == Tmp(GPRInfo::callFrameRegister));
+        FALLTHROUGH;
     case Arg::Addr:
         if (arg.base() == Tmp(GPRInfo::callFrameRegister))
             return ValueRep::stack(arg.offset());
         ASSERT(arg.base() == Tmp(MacroAssembler::stackPointerRegister));
-        return ValueRep::stack(arg.offset() - static_cast<int32_t>(code.frameSize()));
+        return ValueRep::stack(arg.offset() - safeCast<Value::OffsetType>(code.frameSize()));
     default:
         ASSERT_NOT_REACHED();
         return ValueRep();

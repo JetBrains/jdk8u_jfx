@@ -26,10 +26,7 @@
 
 #include "TextFlags.h"
 #include <wtf/Forward.h>
-#include <wtf/PassRefPtr.h>
-#include <wtf/RefCounted.h>
 #include <wtf/RetainPtr.h>
-#include <wtf/text/StringImpl.h>
 
 
 #if PLATFORM(WIN)
@@ -39,14 +36,12 @@
 
 #if USE(CAIRO)
 #include "RefPtrCairo.h"
-#include <wtf/HashFunctions.h>
-#include <cairo.h>
 #endif
 
 #if USE(FREETYPE)
 #include "FcUniquePtr.h"
 #include "HarfBuzzFace.h"
-#include "OpenTypeVerticalData.h"
+#include <memory>
 #endif
 
 #if PLATFORM(JAVA)
@@ -86,17 +81,17 @@ public:
     FontPlatformData();
 
     FontPlatformData(const FontDescription&, const AtomicString& family);
-    FontPlatformData(float size, bool syntheticBold, bool syntheticOblique, FontOrientation = Horizontal, FontWidthVariant = RegularWidth, TextRenderingMode = AutoTextRendering);
+    FontPlatformData(float size, bool syntheticBold, bool syntheticOblique, FontOrientation = FontOrientation::Horizontal, FontWidthVariant = FontWidthVariant::RegularWidth, TextRenderingMode = TextRenderingMode::AutoTextRendering);
 
 #if PLATFORM(COCOA)
-    WEBCORE_EXPORT FontPlatformData(CTFontRef, float size, bool syntheticBold = false, bool syntheticOblique = false, FontOrientation = Horizontal, FontWidthVariant = RegularWidth, TextRenderingMode = AutoTextRendering);
+    WEBCORE_EXPORT FontPlatformData(CTFontRef, float size, bool syntheticBold = false, bool syntheticOblique = false, FontOrientation = FontOrientation::Horizontal, FontWidthVariant = FontWidthVariant::RegularWidth, TextRenderingMode = TextRenderingMode::AutoTextRendering);
 #endif
 
     static FontPlatformData cloneWithOrientation(const FontPlatformData&, FontOrientation);
     static FontPlatformData cloneWithSyntheticOblique(const FontPlatformData&, bool);
     static FontPlatformData cloneWithSize(const FontPlatformData&, float);
 
-#if USE(CG) && (PLATFORM(WIN) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED < 100000))
+#if USE(CG) && PLATFORM(WIN)
     FontPlatformData(CGFontRef, float size, bool syntheticBold, bool syntheticOblique, FontOrientation, FontWidthVariant, TextRenderingMode);
 #endif
 
@@ -154,7 +149,7 @@ public:
 
     bool hasVariations() const { return m_hasVariations; }
 
-#if USE(CG) && (PLATFORM(WIN) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED < 100000))
+#if USE(CG) && PLATFORM(WIN)
     CGFontRef cgFont() const { return m_cgFont.get(); }
 #endif
 
@@ -171,16 +166,15 @@ public:
     FontOrientation orientation() const { return m_orientation; }
     FontWidthVariant widthVariant() const { return m_widthVariant; }
     TextRenderingMode textRenderingMode() const { return m_textRenderingMode; }
-    bool isForTextCombine() const { return widthVariant() != RegularWidth; } // Keep in sync with callers of FontDescription::setWidthVariant().
+    bool isForTextCombine() const { return widthVariant() != FontWidthVariant::RegularWidth; } // Keep in sync with callers of FontDescription::setWidthVariant().
 
 #if USE(CAIRO)
     cairo_scaled_font_t* scaledFont() const { return m_scaledFont.get(); }
 #endif
 
 #if USE(FREETYPE)
-    HarfBuzzFace* harfBuzzFace() const;
+    HarfBuzzFace& harfBuzzFace() const;
     bool hasCompatibleCharmap() const;
-    FcFontSet* fallbacks() const;
 #endif
 
 #if PLATFORM(JAVA)
@@ -220,7 +214,7 @@ public:
     RefPtr<SharedBuffer> openTypeTable(uint32_t table) const;
 #endif
 
-#ifndef NDEBUG
+#if !LOG_DISABLED
     String description() const;
 #endif
 
@@ -247,7 +241,7 @@ private:
     RefPtr<SharedGDIObject<HFONT>> m_font;
 #endif
 
-#if USE(CG) && (PLATFORM(WIN) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED < 100000))
+#if USE(CG) && PLATFORM(WIN)
     RetainPtr<CGFontRef> m_cgFont;
 #endif
 
@@ -262,8 +256,7 @@ private:
 
 #if USE(FREETYPE)
     RefPtr<FcPattern> m_pattern;
-    mutable FcUniquePtr<FcFontSet> m_fallbacks;
-    mutable RefPtr<HarfBuzzFace> m_harfBuzzFace;
+    mutable std::unique_ptr<HarfBuzzFace> m_harfBuzzFace;
 #endif
 
 #if PLATFORM(JAVA)
@@ -274,9 +267,9 @@ private:
     // FIXME: If they're common to all ports, they should move to Font
     float m_size { 0 };
 
-    FontOrientation m_orientation { Horizontal };
-    FontWidthVariant m_widthVariant { RegularWidth };
-    TextRenderingMode m_textRenderingMode { AutoTextRendering };
+    FontOrientation m_orientation { FontOrientation::Horizontal };
+    FontWidthVariant m_widthVariant { FontWidthVariant::RegularWidth };
+    TextRenderingMode m_textRenderingMode { TextRenderingMode::AutoTextRendering };
 
     bool m_syntheticBold { false };
     bool m_syntheticOblique { false };
@@ -299,17 +292,17 @@ private:
 #endif
 };
 
-#if USE(APPKIT)
+#if USE(APPKIT) && defined(__OBJC__)
 
 // NSFonts and CTFontRefs are toll-free-bridged.
 inline CTFontRef toCTFont(NSFont *font)
 {
-    return (CTFontRef)font;
+    return (__bridge CTFontRef)font;
 }
 
 inline NSFont *toNSFont(CTFontRef font)
 {
-    return (NSFont *)font;
+    return (__bridge NSFont *)font;
 }
 
 #endif

@@ -32,18 +32,17 @@
 #include "ScriptState.h"
 
 #include "Document.h"
+#include "Frame.h"
 #include "JSDOMWindowBase.h"
 #include "JSWorkerGlobalScope.h"
-#include "MainFrame.h"
 #include "Node.h"
 #include "Page.h"
 #include "ScriptController.h"
 #include "WorkerGlobalScope.h"
 #include "WorkerScriptController.h"
-#include <heap/StrongInlines.h>
-#include <interpreter/CallFrame.h>
-#include <runtime/JSGlobalObject.h>
-
+#include <JavaScriptCore/CallFrame.h>
+#include <JavaScriptCore/JSGlobalObject.h>
+#include <JavaScriptCore/StrongInlines.h>
 
 namespace WebCore {
 
@@ -51,7 +50,7 @@ DOMWindow* domWindowFromExecState(JSC::ExecState* scriptState)
 {
     JSC::JSGlobalObject* globalObject = scriptState->lexicalGlobalObject();
     JSC::VM& vm = globalObject->vm();
-    if (!globalObject->inherits(vm, JSDOMWindowBase::info()))
+    if (!globalObject->inherits<JSDOMWindowBase>(vm))
         return nullptr;
     return &JSC::jsCast<JSDOMWindowBase*>(globalObject)->wrapped();
 }
@@ -67,7 +66,7 @@ ScriptExecutionContext* scriptExecutionContextFromExecState(JSC::ExecState* scri
 {
     JSC::JSGlobalObject* globalObject = scriptState->lexicalGlobalObject();
     JSC::VM& vm = globalObject->vm();
-    if (!globalObject->inherits(vm, JSDOMGlobalObject::info()))
+    if (!globalObject->inherits<JSDOMGlobalObject>(vm))
         return nullptr;
     return JSC::jsCast<JSDOMGlobalObject*>(globalObject)->scriptExecutionContext();
 }
@@ -76,8 +75,7 @@ JSC::ExecState* mainWorldExecState(Frame* frame)
 {
     if (!frame)
         return nullptr;
-    JSDOMWindowShell* shell = frame->script().windowShell(mainThreadNormalWorld());
-    return shell->window()->globalExec();
+    return frame->windowProxy().jsWindowProxy(mainThreadNormalWorld())->window()->globalExec();
 }
 
 JSC::ExecState* execStateFromNode(DOMWrapperWorld& world, Node* node)

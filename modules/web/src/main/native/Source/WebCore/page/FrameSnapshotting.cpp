@@ -63,7 +63,7 @@ struct ScopedFramePaintingState {
 
     const Frame& frame;
     const Node* node;
-    const PaintBehavior paintBehavior;
+    const OptionSet<PaintBehavior> paintBehavior;
     const Color backgroundColor;
 };
 
@@ -73,7 +73,7 @@ std::unique_ptr<ImageBuffer> snapshotFrameRect(Frame& frame, const IntRect& imag
     return snapshotFrameRectWithClip(frame, imageRect, clipRects, options);
 }
 
-std::unique_ptr<ImageBuffer> snapshotFrameRectWithClip(Frame& frame, const IntRect& imageRect, Vector<FloatRect>& clipRects, SnapshotOptions options)
+std::unique_ptr<ImageBuffer> snapshotFrameRectWithClip(Frame& frame, const IntRect& imageRect, const Vector<FloatRect>& clipRects, SnapshotOptions options)
 {
     if (!frame.page())
         return nullptr;
@@ -90,13 +90,15 @@ std::unique_ptr<ImageBuffer> snapshotFrameRectWithClip(Frame& frame, const IntRe
 
     ScopedFramePaintingState state(frame, nullptr);
 
-    PaintBehavior paintBehavior = state.paintBehavior;
+    auto paintBehavior = state.paintBehavior;
     if (options & SnapshotOptionsForceBlackText)
-        paintBehavior |= PaintBehaviorForceBlackText;
+        paintBehavior |= PaintBehavior::ForceBlackText;
     if (options & SnapshotOptionsPaintSelectionOnly)
-        paintBehavior |= PaintBehaviorSelectionOnly;
+        paintBehavior |= PaintBehavior::SelectionOnly;
     if (options & SnapshotOptionsPaintSelectionAndBackgroundsOnly)
-        paintBehavior |= PaintBehaviorSelectionAndBackgroundsOnly;
+        paintBehavior |= PaintBehavior::SelectionAndBackgroundsOnly;
+    if (options & SnapshotOptionsPaintEverythingExcludingSelection)
+        paintBehavior |= PaintBehavior::ExcludeSelection;
 
     // Other paint behaviors are set by paintContentsForSnapshot.
     frame.view()->setPaintBehavior(paintBehavior);

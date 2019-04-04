@@ -30,9 +30,9 @@ namespace WebCore {
 
 class FormAssociatedElement;
 class HTMLFormControlsCollection;
-class RenderFieldSet;
 
 class HTMLFieldSetElement final : public HTMLFormControlElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLFieldSetElement);
 public:
     static Ref<HTMLFieldSetElement> create(const QualifiedName&, Document&, HTMLFormElement*);
 
@@ -41,13 +41,12 @@ public:
     Ref<HTMLFormControlsCollection> elements();
     Ref<HTMLCollection> elementsForNativeBindings();
 
-    const Vector<FormAssociatedElement*>& associatedElements() const;
+    const Vector<FormAssociatedElement*>& unsafeAssociatedElements() const;
+    Vector<Ref<FormAssociatedElement>> copyAssociatedElementsVector() const;
     unsigned length() const;
 
     void addInvalidDescendant(const HTMLFormControlElement&);
     void removeInvalidDescendant(const HTMLFormControlElement&);
-
-    RenderFieldSet* renderer() const;
 
 private:
     HTMLFieldSetElement(const QualifiedName&, Document&, HTMLFormElement*);
@@ -61,7 +60,7 @@ private:
     void disabledAttributeChanged() final;
     void disabledStateChanged() final;
     void childrenChanged(const ChildChange&) final;
-    void didMoveToNewDocument(Document& oldDocument) final;
+    void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
 
     bool matchesValidPseudoClass() const final;
     bool matchesInvalidPseudoClass() const final;

@@ -32,6 +32,11 @@ const scheduler = new class
         this._layoutCallbacks.delete(callback);
     }
 
+    flushScheduledLayoutCallbacks()
+    {
+        this._frameDidFire();
+    }
+
     // Private
 
     _requestFrameIfNeeded()

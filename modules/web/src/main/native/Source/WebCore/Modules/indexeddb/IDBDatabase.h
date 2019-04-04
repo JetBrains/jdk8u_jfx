@@ -30,7 +30,6 @@
 #include "EventTarget.h"
 #include "IDBActiveDOMObject.h"
 #include "IDBConnectionProxy.h"
-#include "IDBConnectionToServer.h"
 #include "IDBDatabaseInfo.h"
 #include "IDBKeyPath.h"
 #include "IDBTransactionMode.h"
@@ -107,7 +106,7 @@ public:
 
     bool isClosingOrClosed() const { return m_closePending || m_closedInServer; }
 
-    bool dispatchEvent(Event&) final;
+    void dispatchEvent(Event&) final;
 
     bool hasPendingActivity() const final;
 

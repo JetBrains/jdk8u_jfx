@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2009 Google Inc. All rights reserved.
- * Copyright (C) 2016 Apple Inc.  All rights reserved.
+ * Copyright (C) 2016-2017 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -38,9 +38,9 @@
 #include "WorkerRunLoop.h"
 #include "WorkerGlobalScope.h"
 #include "WorkerThread.h"
-#include <wtf/CurrentTime.h>
+#include <JavaScriptCore/PromiseDeferredTimer.h>
 
-#if PLATFORM(GTK)
+#if USE(GLIB)
 #include <glib.h>
 #endif
 
@@ -49,7 +49,7 @@ namespace WebCore {
 class WorkerSharedTimer final : public SharedTimer {
 public:
     // SharedTimer interface.
-    void setFiredFunction(std::function<void()>&& function) override { m_sharedTimerFunction = WTFMove(function); }
+    void setFiredFunction(WTF::Function<void()>&& function) override { m_sharedTimerFunction = WTFMove(function); }
     void setFireInterval(Seconds interval) override { m_nextFireTime = interval + WallTime::now(); }
     void stop() override { m_nextFireTime = WallTime(); }
 
@@ -58,7 +58,7 @@ public:
     void fire() { m_sharedTimerFunction(); }
 
 private:
-    std::function<void()> m_sharedTimerFunction;
+    WTF::Function<void()> m_sharedTimerFunction;
     WallTime m_nextFireTime;
 };
 
@@ -104,7 +104,7 @@ String WorkerRunLoop::defaultMode()
 
 String WorkerRunLoop::debuggerMode()
 {
-    return ASCIILiteral("debugger");
+    return "debugger"_s;
 }
 
 class RunLoopSetup {
@@ -150,9 +150,15 @@ MessageQueueWaitResult WorkerRunLoop::runInMode(WorkerGlobalScope* context, cons
 MessageQueueWaitResult WorkerRunLoop::runInMode(WorkerGlobalScope* context, const ModePredicate& predicate, WaitMode waitMode)
 {
     ASSERT(context);
-    ASSERT(context->thread().threadID() == currentThread());
+    ASSERT(context->thread().thread() == &Thread::current());
 
-#if PLATFORM(GTK)
+    JSC::JSRunLoopTimer::TimerNotificationCallback timerAddedTask = WTF::createSharedTask<JSC::JSRunLoopTimer::TimerNotificationType>([this] {
+        // We don't actually do anything here, we just want to loop around runInMode
+        // to both recalculate our deadline and to potentially run the run loop.
+        this->postTask([](ScriptExecutionContext&) { });
+    });
+
+#if USE(GLIB)
     GMainContext* mainContext = g_main_context_get_thread_default();
     if (g_main_context_pending(mainContext))
         g_main_context_iteration(mainContext, FALSE);
@@ -173,12 +179,17 @@ MessageQueueWaitResult WorkerRunLoop::runInMode(WorkerGlobalScope* context, cons
         else
             absoluteTime = deadline;
     }
-    MessageQueueWaitResult result;
-    if (WorkerScriptController* script = context->script())
+
+    if (WorkerScriptController* script = context->script()) {
         script->releaseHeapAccess();
+        script->addTimerSetNotification(timerAddedTask);
+    }
+    MessageQueueWaitResult result;
     auto task = m_messageQueue.waitForMessageFilteredWithTimeout(result, predicate, absoluteTime);
-    if (WorkerScriptController* script = context->script())
+    if (WorkerScriptController* script = context->script()) {
         script->acquireHeapAccess();
+        script->removeTimerSetNotification(timerAddedTask);
+    }
 
     // If the context is closing, don't execute any further JavaScript tasks (per section 4.1.1 of the Web Workers spec).  However, there may be implementation cleanup tasks in the queue, so keep running through it.
 
@@ -187,18 +198,21 @@ MessageQueueWaitResult WorkerRunLoop::runInMode(WorkerGlobalScope* context, cons
         break;
 
     case MessageQueueMessageReceived:
-        task->performTask(*this, context);
+        task->performTask(context);
         break;
 
     case MessageQueueTimeout:
         if (!context->isClosing() && !isNested())
             m_sharedTimer->fire();
-#if USE(CF)
-        if (nextCFRunLoopTimerFireDate <= CFAbsoluteTimeGetCurrent())
-            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, /*returnAfterSourceHandled*/ false);
-#endif
         break;
     }
+
+#if USE(CF)
+    if (result != MessageQueueTerminated) {
+        if (nextCFRunLoopTimerFireDate <= CFAbsoluteTimeGetCurrent())
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, /*returnAfterSourceHandled*/ false);
+    }
+#endif
 
     return result;
 }
@@ -206,14 +220,14 @@ MessageQueueWaitResult WorkerRunLoop::runInMode(WorkerGlobalScope* context, cons
 void WorkerRunLoop::runCleanupTasks(WorkerGlobalScope* context)
 {
     ASSERT(context);
-    ASSERT(context->thread().threadID() == currentThread());
+    ASSERT(context->thread().thread() == &Thread::current());
     ASSERT(m_messageQueue.killed());
 
     while (true) {
         auto task = m_messageQueue.tryGetMessageIgnoringKilled();
         if (!task)
             return;
-        task->performTask(*this, context);
+        task->performTask(context);
     }
 }
 
@@ -237,9 +251,9 @@ void WorkerRunLoop::postTaskForMode(ScriptExecutionContext::Task&& task, const S
     m_messageQueue.append(std::make_unique<Task>(WTFMove(task), mode));
 }
 
-void WorkerRunLoop::Task::performTask(const WorkerRunLoop& runLoop, WorkerGlobalScope* context)
+void WorkerRunLoop::Task::performTask(WorkerGlobalScope* context)
 {
-    if ((!context->isClosing() && !runLoop.terminated()) || m_task.isCleanupTask())
+    if ((!context->isClosing() && context->script() && !context->script()->isTerminatingExecution()) || m_task.isCleanupTask())
         m_task.performTask(*context);
 }
 

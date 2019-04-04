@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2011 Adam Barth. All Rights Reserved.
  * Copyright (C) 2011 Daniel Bates (dbates@intudata.com).
+ * Copyright (C) 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,6 +33,7 @@
 #include "DocumentLoader.h"
 #include "FormData.h"
 #include "Frame.h"
+#include "FrameLoader.h"
 #include "HTMLDocumentParser.h"
 #include "HTMLNames.h"
 #include "HTMLParamElement.h"
@@ -43,6 +45,7 @@
 #include <wtf/ASCIICType.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/text/StringView.h>
 
 namespace WebCore {
 
@@ -238,11 +241,9 @@ static bool isSemicolonSeparatedAttribute(const HTMLToken::Attribute& attribute)
     return threadSafeMatch(attribute.name, SVGNames::valuesAttr);
 }
 
-static bool semicolonSeparatedValueContainsJavaScriptURL(const String& value)
+static bool semicolonSeparatedValueContainsJavaScriptURL(StringView semicolonSeparatedValue)
 {
-    Vector<String> valueList;
-    value.split(';', valueList);
-    for (auto& value : valueList) {
+    for (auto value : semicolonSeparatedValue.split(';')) {
         if (protocolIsJavaScript(value))
             return true;
     }
@@ -282,7 +283,7 @@ void XSSAuditor::init(Document* document, XSSAuditorDelegate* auditorDelegate)
     ASSERT(m_state == Uninitialized);
     m_state = Initialized;
 
-    if (Frame* frame = document->frame())
+    if (RefPtr<Frame> frame = document->frame())
         m_isEnabled = frame->settings().xssAuditorEnabled();
 
     if (!m_isEnabled)
@@ -316,9 +317,8 @@ void XSSAuditor::init(Document* document, XSSAuditorDelegate* auditorDelegate)
         m_decodedURL = String();
 
     String httpBodyAsString;
-    if (DocumentLoader* documentLoader = document->frame()->loader().documentLoader()) {
-        static NeverDestroyed<String> XSSProtectionHeader(ASCIILiteral("X-XSS-Protection"));
-        String headerValue = documentLoader->response().httpHeaderField(XSSProtectionHeader);
+    if (RefPtr<DocumentLoader> documentLoader = document->frame()->loader().documentLoader()) {
+        String headerValue = documentLoader->response().httpHeaderField(HTTPHeaderName::XXSSProtection);
         String errorDetails;
         unsigned errorPosition = 0;
         String parsedReportURL;
@@ -342,7 +342,7 @@ void XSSAuditor::init(Document* document, XSSAuditorDelegate* auditorDelegate)
 
         if (auditorDelegate)
             auditorDelegate->setReportURL(reportURL.isolatedCopy());
-        FormData* httpBody = documentLoader->originalRequest().httpBody();
+        RefPtr<FormData> httpBody = documentLoader->originalRequest().httpBody();
         if (httpBody && !httpBody->isEmpty()) {
             httpBodyAsString = httpBody->flattenToString();
             if (!httpBodyAsString.isEmpty()) {
@@ -447,6 +447,7 @@ bool XSSAuditor::filterScriptToken(const FilterTokenRequest& request)
     bool didBlockScript = false;
     if (m_wasScriptTagFoundInRequest) {
         didBlockScript |= eraseAttributeIfInjected(request, srcAttr, blankURL().string(), TruncationStyle::SrcLikeAttribute);
+        didBlockScript |= eraseAttributeIfInjected(request, SVGNames::hrefAttr, blankURL().string(), TruncationStyle::SrcLikeAttribute);
         didBlockScript |= eraseAttributeIfInjected(request, XLinkNames::hrefAttr, blankURL().string(), TruncationStyle::SrcLikeAttribute);
     }
 
@@ -564,7 +565,7 @@ bool XSSAuditor::filterButtonToken(const FilterTokenRequest& request)
 
 bool XSSAuditor::eraseDangerousAttributesIfInjected(const FilterTokenRequest& request)
 {
-    static NeverDestroyed<String> safeJavaScriptURL(ASCIILiteral("javascript:void(0)"));
+    static NeverDestroyed<String> safeJavaScriptURL(MAKE_STATIC_STRING_IMPL("javascript:void(0)"));
 
     bool didBlockScript = false;
     for (size_t i = 0; i < request.token.attributes().size(); ++i) {
@@ -714,11 +715,11 @@ bool XSSAuditor::isContainedInRequest(const String& decodedSnippet)
 {
     if (decodedSnippet.isEmpty())
         return false;
-    if (m_decodedURL.find(decodedSnippet, 0, false) != notFound)
+    if (m_decodedURL.containsIgnoringASCIICase(decodedSnippet))
         return true;
     if (m_decodedHTTPBodySuffixTree && !m_decodedHTTPBodySuffixTree->mightContain(decodedSnippet))
         return false;
-    return m_decodedHTTPBody.find(decodedSnippet, 0, false) != notFound;
+    return m_decodedHTTPBody.containsIgnoringASCIICase(decodedSnippet);
 }
 
 bool XSSAuditor::isLikelySafeResource(const String& url)

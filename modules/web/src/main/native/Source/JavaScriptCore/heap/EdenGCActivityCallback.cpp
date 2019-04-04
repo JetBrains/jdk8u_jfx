@@ -31,28 +31,25 @@
 
 namespace JSC {
 
-#if USE(CF) || USE(GLIB)
-
 EdenGCActivityCallback::EdenGCActivityCallback(Heap* heap)
     : GCActivityCallback(heap)
 {
 }
 
-void EdenGCActivityCallback::doCollection()
+void EdenGCActivityCallback::doCollection(VM& vm)
 {
-    m_vm->heap.collectAsync(CollectionScope::Eden);
+    vm.heap.collectAsync(CollectionScope::Eden);
 }
 
-double EdenGCActivityCallback::lastGCLength()
+Seconds EdenGCActivityCallback::lastGCLength(Heap& heap)
 {
-    return m_vm->heap.lastEdenGCLength().seconds();
+    return heap.lastEdenGCLength();
 }
 
-double EdenGCActivityCallback::deathRate()
+double EdenGCActivityCallback::deathRate(Heap& heap)
 {
-    Heap* heap = &m_vm->heap;
-    size_t sizeBefore = heap->sizeBeforeLastEdenCollection();
-    size_t sizeAfter = heap->sizeAfterLastEdenCollection();
+    size_t sizeBefore = heap.sizeBeforeLastEdenCollection();
+    size_t sizeAfter = heap.sizeAfterLastEdenCollection();
     if (!sizeBefore)
         return 1.0;
     if (sizeAfter > sizeBefore) {
@@ -68,33 +65,5 @@ double EdenGCActivityCallback::gcTimeSlice(size_t bytes)
 {
     return std::min((static_cast<double>(bytes) / MB) * Options::percentCPUPerMBForEdenTimer(), Options::collectionTimerMaxPercentCPU());
 }
-
-#else
-
-EdenGCActivityCallback::EdenGCActivityCallback(Heap* heap)
-    : GCActivityCallback(heap->vm())
-{
-}
-
-void EdenGCActivityCallback::doCollection()
-{
-}
-
-double EdenGCActivityCallback::lastGCLength()
-{
-    return 0;
-}
-
-double EdenGCActivityCallback::deathRate()
-{
-    return 0;
-}
-
-double EdenGCActivityCallback::gcTimeSlice(size_t)
-{
-    return 0;
-}
-
-#endif // USE(CF) || USE(GLIB)
 
 } // namespace JSC

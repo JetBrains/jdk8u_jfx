@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -52,33 +52,31 @@ struct FileChooserFileInfo {
     {
     }
 
+    FileChooserFileInfo isolatedCopy() const
+    {
+        return { path.isolatedCopy(), displayName.isolatedCopy() };
+    }
+
     const String path;
     const String displayName;
 };
 
 struct FileChooserSettings {
-    bool allowsMultipleFiles;
+    bool allowsDirectories { false };
+    bool allowsMultipleFiles { false };
     Vector<String> acceptMIMETypes;
     Vector<String> acceptFileExtensions;
     Vector<String> selectedFiles;
 #if ENABLE(MEDIA_CAPTURE)
-    MediaCaptureType mediaCaptureType;
+    MediaCaptureType mediaCaptureType { MediaCaptureTypeNone };
 #endif
-
-    // Returns a combined vector of acceptMIMETypes and acceptFileExtensions.
-    Vector<String> acceptTypes() const;
 };
 
 class FileChooserClient {
 public:
-    virtual ~FileChooserClient() { }
+    virtual ~FileChooserClient() = default;
 
-    virtual void filesChosen(const Vector<FileChooserFileInfo>&) = 0;
-#if PLATFORM(IOS)
-    // FIXME: This function is almost identical to FileChooser::filesChosen(). We should merge this
-    // function with FileChooser::filesChosen() and hence remove the PLATFORM(IOS)-guard.
-    virtual void filesChosen(const Vector<FileChooserFileInfo>&, const String& displayString, Icon*) = 0;
-#endif
+    virtual void filesChosen(const Vector<FileChooserFileInfo>&, const String& displayString = { }, Icon* = nullptr) = 0;
 };
 
 class FileChooser : public RefCounted<FileChooser> {
@@ -104,7 +102,7 @@ public:
 private:
     FileChooser(FileChooserClient*, const FileChooserSettings&);
 
-    FileChooserClient* m_client;
+    FileChooserClient* m_client { nullptr };
     FileChooserSettings m_settings;
 };
 

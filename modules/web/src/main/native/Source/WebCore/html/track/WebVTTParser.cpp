@@ -42,6 +42,7 @@
 #include "Text.h"
 #include "VTTScanner.h"
 #include "WebVTTElement.h"
+#include "WebVTTTokenizer.h"
 
 namespace WebCore {
 
@@ -241,7 +242,7 @@ bool WebVTTParser::hasRequiredFileIdentifier(const String& line)
     // A WebVTT file identifier consists of an optional BOM character,
     // the string "WEBVTT" followed by an optional space or tab character,
     // and any number of characters that are not line terminators ...
-    if (!line.startsWith(fileIdentifier, fileIdentifierLength))
+    if (!line.startsWith(fileIdentifier))
         return false;
     if (line.length() > fileIdentifierLength && !isHTMLSpace(line[fileIdentifierLength]))
         return false;

@@ -38,12 +38,16 @@
 
 #include "GraphicsContext.h"
 #include "IntRect.h"
-#include "UUID.h"
 #include <wtf/MainThread.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
+
+Ref<MediaStreamPrivate> MediaStreamPrivate::create(Ref<RealtimeMediaSource>&& source)
+{
+    return MediaStreamPrivate::create(MediaStreamTrackPrivateVector::from(MediaStreamTrackPrivate::create(WTFMove(source))));
+}
 
 Ref<MediaStreamPrivate> MediaStreamPrivate::create(const Vector<Ref<RealtimeMediaSource>>& audioSources, const Vector<Ref<RealtimeMediaSource>>& videoSources)
 {
@@ -59,14 +63,8 @@ Ref<MediaStreamPrivate> MediaStreamPrivate::create(const Vector<Ref<RealtimeMedi
     return MediaStreamPrivate::create(tracks);
 }
 
-Ref<MediaStreamPrivate> MediaStreamPrivate::create(const MediaStreamTrackPrivateVector& tracks)
-{
-    return adoptRef(*new MediaStreamPrivate(createCanonicalUUIDString(), tracks));
-}
-
-MediaStreamPrivate::MediaStreamPrivate(const String& id, const MediaStreamTrackPrivateVector& tracks)
-    : m_weakPtrFactory(this)
-    , m_id(id)
+MediaStreamPrivate::MediaStreamPrivate(const MediaStreamTrackPrivateVector& tracks, String&& id)
+    : m_id(WTFMove(id))
 {
     ASSERT(!m_id.isEmpty());
 
@@ -98,11 +96,7 @@ void MediaStreamPrivate::removeObserver(MediaStreamPrivate::Observer& observer)
 
 MediaStreamTrackPrivateVector MediaStreamPrivate::tracks() const
 {
-    MediaStreamTrackPrivateVector tracks;
-    tracks.reserveCapacity(m_trackSet.size());
-    copyValuesToVector(m_trackSet, tracks);
-
-    return tracks;
+    return copyToVector(m_trackSet.values());
 }
 
 void MediaStreamPrivate::updateActiveState(NotifyClientOption notifyClientOption)
@@ -143,6 +137,7 @@ void MediaStreamPrivate::addTrack(RefPtr<MediaStreamTrackPrivate>&& track, Notif
     }
 
     updateActiveState(notifyClientOption);
+    characteristicsChanged();
 }
 
 void MediaStreamPrivate::removeTrack(MediaStreamTrackPrivate& track, NotifyClientOption notifyClientOption)
@@ -158,6 +153,7 @@ void MediaStreamPrivate::removeTrack(MediaStreamTrackPrivate& track, NotifyClien
     }
 
     updateActiveState(NotifyClientOption::Notify);
+    characteristicsChanged();
 }
 
 void MediaStreamPrivate::startProducingData()
@@ -181,6 +177,14 @@ bool MediaStreamPrivate::isProducingData() const
     return false;
 }
 
+void MediaStreamPrivate::setCaptureTracksMuted(bool muted)
+{
+    for (auto& track : m_trackSet.values()) {
+        if (track->isCaptureTrack())
+            track->setMuted(muted);
+    }
+}
+
 bool MediaStreamPrivate::hasVideo() const
 {
     for (auto& track : m_trackSet.values()) {
@@ -199,19 +203,19 @@ bool MediaStreamPrivate::hasAudio() const
     return false;
 }
 
-bool MediaStreamPrivate::hasLocalVideoSource() const
+bool MediaStreamPrivate::hasCaptureVideoSource() const
 {
     for (auto& track : m_trackSet.values()) {
-        if (track->type() == RealtimeMediaSource::Type::Video && !track->remote())
+        if (track->type() == RealtimeMediaSource::Type::Video && track->isCaptureTrack())
             return true;
     }
     return false;
 }
 
-bool MediaStreamPrivate::hasLocalAudioSource() const
+bool MediaStreamPrivate::hasCaptureAudioSource() const
 {
     for (auto& track : m_trackSet.values()) {
-        if (track->type() == RealtimeMediaSource::Type::Audio && !track->remote())
+        if (track->type() == RealtimeMediaSource::Type::Audio && track->isCaptureTrack())
             return true;
     }
     return false;
@@ -220,7 +224,7 @@ bool MediaStreamPrivate::hasLocalAudioSource() const
 bool MediaStreamPrivate::muted() const
 {
     for (auto& track : m_trackSet.values()) {
-        if (!track->muted())
+        if (!track->muted() && !track->ended())
             return false;
     }
     return true;
@@ -237,30 +241,6 @@ FloatSize MediaStreamPrivate::intrinsicSize() const
     }
 
     return size;
-}
-
-void MediaStreamPrivate::paintCurrentFrameInContext(GraphicsContext& context, const FloatRect& rect)
-{
-    if (context.paintingDisabled())
-        return;
-
-    if (active() && m_activeVideoTrack)
-        m_activeVideoTrack->paintCurrentFrameInContext(context, rect);
-    else {
-        GraphicsContextStateSaver stateSaver(context);
-        context.translate(rect.x(), rect.y() + rect.height());
-        context.scale(FloatSize(1, -1));
-        IntRect paintRect(IntPoint(0, 0), IntSize(rect.width(), rect.height()));
-        context.fillRect(paintRect, Color::black);
-    }
-}
-
-RefPtr<Image> MediaStreamPrivate::currentFrameImage()
-{
-    if (!active() || !m_activeVideoTrack)
-        return nullptr;
-
-    return m_activeVideoTrack->source().currentFrameImage();
 }
 
 void MediaStreamPrivate::updateActiveVideoTrack()
@@ -301,6 +281,13 @@ void MediaStreamPrivate::trackEnabledChanged(MediaStreamTrackPrivate&)
     });
 }
 
+void MediaStreamPrivate::trackStarted(MediaStreamTrackPrivate&)
+{
+    scheduleDeferredTask([this] {
+        characteristicsChanged();
+    });
+}
+
 void MediaStreamPrivate::trackEnded(MediaStreamTrackPrivate&)
 {
     scheduleDeferredTask([this] {
@@ -312,12 +299,20 @@ void MediaStreamPrivate::trackEnded(MediaStreamTrackPrivate&)
 void MediaStreamPrivate::scheduleDeferredTask(Function<void ()>&& function)
 {
     ASSERT(function);
-    callOnMainThread([weakThis = createWeakPtr(), function = WTFMove(function)] {
+    callOnMainThread([weakThis = makeWeakPtr(*this), function = WTFMove(function)] {
         if (!weakThis)
             return;
 
         function();
     });
+}
+
+void MediaStreamPrivate::monitorOrientation(OrientationNotifier& notifier)
+{
+    for (auto& track : m_trackSet.values()) {
+        if (track->source().isCaptureSource() && track->type() == RealtimeMediaSource::Type::Video)
+            track->source().monitorOrientation(notifier);
+    }
 }
 
 } // namespace WebCore

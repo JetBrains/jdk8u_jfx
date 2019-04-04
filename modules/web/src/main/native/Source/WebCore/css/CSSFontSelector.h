@@ -63,6 +63,7 @@ public:
     RefPtr<Font> fallbackFontAt(const FontDescription&, size_t) final;
 
     void clearDocument();
+    void emptyCaches();
     void buildStarted();
     void buildCompleted();
 
@@ -82,12 +83,15 @@ public:
 
     FontFaceSet& fontFaceSet();
 
-    void setIsComputingRootStyleFont(bool value) { m_isComputingRootStyleFont = value; }
+    void incrementIsComputingRootStyleFont() { ++m_computingRootStyleFontCount; }
+    void decrementIsComputingRootStyleFont() { --m_computingRootStyleFontCount; }
 
 private:
     explicit CSSFontSelector(Document&);
 
     void dispatchInvalidationCallbacks();
+
+    void opportunisticallyStartFontDataURLLoading(const FontCascadeDescription&, const AtomicString& family) final;
 
     void fontModified() final;
 
@@ -111,9 +115,9 @@ private:
 
     unsigned m_uniqueId;
     unsigned m_version;
+    unsigned m_computingRootStyleFontCount { 0 };
     bool m_creatingFont { false };
     bool m_buildIsUnderway { false };
-    bool m_isComputingRootStyleFont { false };
 };
 
 } // namespace WebCore

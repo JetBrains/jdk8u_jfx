@@ -26,9 +26,9 @@
 #include "JSHTMLElement.h"
 #include "PluginViewBase.h"
 
-using namespace JSC;
 
 namespace WebCore {
+using namespace JSC;
 
 using namespace Bindings;
 using namespace HTMLNames;
@@ -94,12 +94,12 @@ JSObject* pluginScriptObject(ExecState* exec, JSHTMLElement* jsHTMLElement)
     return instance->createRuntimeObject(exec);
 }
 
-EncodedJSValue pluginElementPropertyGetter(ExecState* exec, EncodedJSValue thisValue, PropertyName propertyName)
+static EncodedJSValue pluginElementPropertyGetter(ExecState* exec, EncodedJSValue thisValue, PropertyName propertyName)
 {
     VM& vm = exec->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSHTMLElement* thisObject = jsDynamicDowncast<JSHTMLElement*>(vm, JSValue::decode(thisValue));
+    JSHTMLElement* thisObject = jsDynamicCast<JSHTMLElement*>(vm, JSValue::decode(thisValue));
     if (!thisObject)
         return throwVMTypeError(exec, scope);
     JSObject* scriptObject = pluginScriptObject(exec, thisObject);
@@ -109,26 +109,33 @@ EncodedJSValue pluginElementPropertyGetter(ExecState* exec, EncodedJSValue thisV
     return JSValue::encode(scriptObject->get(exec, propertyName));
 }
 
-bool pluginElementCustomGetOwnPropertySlot(ExecState* exec, PropertyName propertyName, PropertySlot& slot, JSHTMLElement* element)
+bool pluginElementCustomGetOwnPropertySlot(JSHTMLElement* element, ExecState* exec, PropertyName propertyName, PropertySlot& slot)
 {
+    if (!element->globalObject()->world().isNormal()) {
+        JSC::JSValue proto = element->getPrototypeDirect(exec->vm());
+        if (proto.isObject() && JSC::jsCast<JSC::JSObject*>(asObject(proto))->hasProperty(exec, propertyName))
+            return false;
+    }
+
     JSObject* scriptObject = pluginScriptObject(exec, element);
     if (!scriptObject)
         return false;
 
     if (!scriptObject->hasProperty(exec, propertyName))
         return false;
-    slot.setCustom(element, DontDelete | DontEnum, pluginElementPropertyGetter);
+
+    slot.setCustom(element, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::DontEnum, pluginElementPropertyGetter);
     return true;
 }
 
-bool pluginElementCustomPut(ExecState* exec, PropertyName propertyName, JSValue value, JSHTMLElement* element, PutPropertySlot& slot, bool& putResult)
+bool pluginElementCustomPut(JSHTMLElement* element, ExecState* exec, PropertyName propertyName, JSValue value, PutPropertySlot& slot, bool& putResult)
 {
     JSObject* scriptObject = pluginScriptObject(exec, element);
     if (!scriptObject)
         return false;
     if (!scriptObject->hasProperty(exec, propertyName))
         return false;
-    putResult = scriptObject->methodTable()->put(scriptObject, exec, propertyName, value, slot);
+    putResult = scriptObject->methodTable(exec->vm())->put(scriptObject, exec, propertyName, value, slot);
     return true;
 }
 
@@ -144,9 +151,10 @@ static EncodedJSValue JSC_HOST_CALL callPlugin(ExecState* exec)
     MarkedArgumentBuffer argumentList;
     for (size_t i = 0; i < argumentCount; i++)
         argumentList.append(exec->argument(i));
+    ASSERT(!argumentList.hasOverflowed());
 
     CallData callData;
-    CallType callType = getCallData(scriptObject, callData);
+    CallType callType = getCallData(exec->vm(), scriptObject, callData);
     ASSERT(callType == CallType::Host);
 
     // Call the object.
@@ -154,13 +162,14 @@ static EncodedJSValue JSC_HOST_CALL callPlugin(ExecState* exec)
     return JSValue::encode(result);
 }
 
-CallType pluginElementGetCallData(JSHTMLElement* element, CallData& callData)
+CallType pluginElementCustomGetCallData(JSHTMLElement* element, CallData& callData)
 {
     // First, ask the plug-in view base for its runtime object.
     if (JSObject* scriptObject = pluginScriptObjectFromPluginViewBase(element)) {
         CallData scriptObjectCallData;
 
-        if (scriptObject->methodTable()->getCallData(scriptObject, scriptObjectCallData) == CallType::None)
+        VM& vm = *scriptObject->vm();
+        if (scriptObject->methodTable(vm)->getCallData(scriptObject, scriptObjectCallData) == CallType::None)
             return CallType::None;
 
         callData.native.function = callPlugin;

@@ -27,10 +27,12 @@
 #include "Position.h"
 
 #include "CSSComputedStyleDeclaration.h"
+#include "Editing.h"
 #include "HTMLBRElement.h"
 #include "HTMLBodyElement.h"
 #include "HTMLHtmlElement.h"
 #include "HTMLNames.h"
+#include "HTMLParserIdioms.h"
 #include "HTMLTableElement.h"
 #include "InlineElementBox.h"
 #include "InlineIterator.h"
@@ -47,12 +49,11 @@
 #include "RuntimeEnabledFeatures.h"
 #include "Text.h"
 #include "TextIterator.h"
-#include "TextStream.h"
 #include "VisiblePosition.h"
 #include "VisibleUnits.h"
-#include "htmlediting.h"
 #include <stdio.h>
 #include <wtf/text/CString.h>
+#include <wtf/text/TextStream.h>
 #include <wtf/unicode/CharacterNames.h>
 
 #if ENABLE(TREE_DEBUGGING)
@@ -634,6 +635,13 @@ static bool isStreamer(const PositionIterator& pos)
     return pos.atStartOfNode();
 }
 
+static void ensureLineBoxesIfNeeded(RenderObject& renderer)
+{
+    if (!is<RenderText>(renderer) && !is<RenderLineBreak>(renderer))
+        return;
+    is<RenderText>(renderer) ? downcast<RenderText>(renderer).ensureLineBoxes() : downcast<RenderLineBreak>(renderer).ensureLineBoxes();
+}
+
 // This function and downstream() are used for moving back and forth between visually equivalent candidates.
 // For example, for the text node "foo     bar" where whitespace is collapsible, there are two candidates
 // that map to the VisiblePosition between 'b' and the space.  This function will return the left candidate
@@ -677,9 +685,9 @@ Position Position::upstream(EditingBoundaryCrossingRule rule) const
 
         // skip position in unrendered or invisible node
         RenderObject* renderer = currentNode.renderer();
-        if (!renderer || renderer->style().visibility() != VISIBLE)
+        if (!renderer || renderer->style().visibility() != Visibility::Visible)
             continue;
-
+        ensureLineBoxesIfNeeded(*renderer);
         if (rule == CanCrossEditingBoundary && boundaryCrossed) {
             lastVisible = currentPosition;
             break;
@@ -704,8 +712,6 @@ Position Position::upstream(EditingBoundaryCrossingRule rule) const
         // return current position if it is in rendered text
         if (is<RenderText>(*renderer)) {
             auto& textRenderer = downcast<RenderText>(*renderer);
-            textRenderer.ensureLineBoxes();
-
             if (!textRenderer.firstTextBox())
                 continue;
             if (&currentNode != startNode) {
@@ -814,9 +820,9 @@ Position Position::downstream(EditingBoundaryCrossingRule rule) const
 
         // skip position in unrendered or invisible node
         auto* renderer = currentNode.renderer();
-        if (!renderer || renderer->style().visibility() != VISIBLE)
+        if (!renderer || renderer->style().visibility() != Visibility::Visible)
             continue;
-
+        ensureLineBoxesIfNeeded(*renderer);
         if (rule == CanCrossEditingBoundary && boundaryCrossed) {
             lastVisible = currentPosition;
             break;
@@ -836,8 +842,6 @@ Position Position::downstream(EditingBoundaryCrossingRule rule) const
         // return current position if it is in rendered text
         if (is<RenderText>(*renderer)) {
             auto& textRenderer = downcast<RenderText>(*renderer);
-            textRenderer.ensureLineBoxes();
-
             if (!textRenderer.firstTextBox())
                 continue;
             if (&currentNode != startNode) {
@@ -950,13 +954,13 @@ bool Position::hasRenderedNonAnonymousDescendantsWithHeight(const RenderElement&
 
 bool Position::nodeIsUserSelectNone(Node* node)
 {
-    return node && node->renderer() && node->renderer()->style().userSelect() == SELECT_NONE;
+    return node && node->renderer() && node->renderer()->style().userSelect() == UserSelect::None;
 }
 
 #if ENABLE(USERSELECT_ALL)
 bool Position::nodeIsUserSelectAll(const Node* node)
 {
-    return node && node->renderer() && node->renderer()->style().userSelect() == SELECT_ALL;
+    return node && node->renderer() && node->renderer()->style().userSelect() == UserSelect::All;
 }
 
 Node* Position::rootUserSelectAllForNode(Node* node)
@@ -991,7 +995,7 @@ bool Position::isCandidate() const
     if (!renderer)
         return false;
 
-    if (renderer->style().visibility() != VISIBLE)
+    if (renderer->style().visibility() != Visibility::Visible)
         return false;
 
     if (renderer->isBR()) {
@@ -1054,7 +1058,7 @@ bool Position::rendersInDifferentPosition(const Position& position) const
     if (!positionRenderer)
         return false;
 
-    if (renderer->style().visibility() != VISIBLE || positionRenderer->style().visibility() != VISIBLE)
+    if (renderer->style().visibility() != Visibility::Visible || positionRenderer->style().visibility() != Visibility::Visible)
         return false;
 
     if (deprecatedNode() == position.deprecatedNode()) {
@@ -1138,11 +1142,11 @@ Position Position::leadingWhitespacePosition(EAffinity affinity, bool considerNo
 
     Position prev = previousCharacterPosition(affinity);
     if (prev != *this && inSameEnclosingBlockFlowElement(deprecatedNode(), prev.deprecatedNode()) && is<Text>(*prev.deprecatedNode())) {
-        String string = downcast<Text>(*prev.deprecatedNode()).data();
-        UChar c = string[prev.deprecatedEditingOffset()];
-        if (considerNonCollapsibleWhitespace ? (isSpaceOrNewline(c) || c == noBreakSpace) : deprecatedIsCollapsibleWhitespace(c))
+        UChar c = downcast<Text>(*prev.deprecatedNode()).data()[prev.deprecatedEditingOffset()];
+        if (considerNonCollapsibleWhitespace ? (isHTMLSpace(c) || c == noBreakSpace) : deprecatedIsCollapsibleWhitespace(c)) {
             if (isEditablePosition(prev))
                 return prev;
+        }
     }
 
     return { };
@@ -1159,7 +1163,7 @@ Position Position::trailingWhitespacePosition(EAffinity, bool considerNonCollaps
     UChar c = v.characterAfter();
     // The space must not be in another paragraph and it must be editable.
     if (!isEndOfParagraph(v) && v.next(CannotCrossEditingBoundary).isNotNull())
-        if (considerNonCollapsibleWhitespace ? (isSpaceOrNewline(c) || c == noBreakSpace) : deprecatedIsCollapsibleWhitespace(c))
+        if (considerNonCollapsibleWhitespace ? (isHTMLSpace(c) || c == noBreakSpace) : deprecatedIsCollapsibleWhitespace(c))
             return *this;
 
     return { };
@@ -1230,9 +1234,11 @@ void Position::getInlineBoxAndOffset(EAffinity affinity, TextDirection primaryDi
     caretOffset = deprecatedEditingOffset();
     RenderObject* renderer = deprecatedNode()->renderer();
 
-    if (renderer->isBR())
-        inlineBox = !caretOffset ? downcast<RenderLineBreak>(*renderer).inlineBoxWrapper() : nullptr;
-    else if (is<RenderText>(*renderer)) {
+    if (renderer->isBR()) {
+        auto& lineBreakRenderer = downcast<RenderLineBreak>(*renderer);
+        lineBreakRenderer.ensureLineBoxes();
+        inlineBox = !caretOffset ? lineBreakRenderer.inlineBoxWrapper() : nullptr;
+    } else if (is<RenderText>(*renderer)) {
         auto& textRenderer = downcast<RenderText>(*renderer);
         textRenderer.ensureLineBoxes();
 
@@ -1382,10 +1388,10 @@ void Position::getInlineBoxAndOffset(EAffinity affinity, TextDirection primaryDi
 TextDirection Position::primaryDirection() const
 {
     if (!m_anchorNode->renderer())
-        return LTR;
+        return TextDirection::LTR;
     if (auto* blockFlow = lineageOfType<RenderBlockFlow>(*m_anchorNode->renderer()).first())
         return blockFlow->style().direction();
-    return LTR;
+    return TextDirection::LTR;
 }
 
 #if ENABLE(TREE_DEBUGGING)

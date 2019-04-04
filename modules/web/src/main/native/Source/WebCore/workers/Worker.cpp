@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2017 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Google Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,23 +31,29 @@
 #include "Event.h"
 #include "EventNames.h"
 #include "InspectorInstrumentation.h"
-#include "NetworkStateNotifier.h"
+#include "LoaderStrategy.h"
+#include "PlatformStrategies.h"
 #include "ResourceResponse.h"
 #include "SecurityOrigin.h"
 #include "WorkerGlobalScopeProxy.h"
 #include "WorkerScriptLoader.h"
 #include "WorkerThread.h"
-#include <inspector/IdentifiersFactory.h>
+#include <JavaScriptCore/IdentifiersFactory.h>
 #include <wtf/HashSet.h>
 #include <wtf/MainThread.h>
+#include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
-static HashSet<Worker*>* allWorkers;
-
-void networkStateChanged(bool isOnLine)
+static HashSet<Worker*>& allWorkers()
 {
-    for (auto& worker : *allWorkers)
+    static NeverDestroyed<HashSet<Worker*>> set;
+    return set;
+}
+
+void Worker::networkStateChanged(bool isOnLine)
+{
+    for (auto* worker : allWorkers())
         worker->notifyNetworkStateChange(isOnLine);
 }
 
@@ -57,16 +63,17 @@ inline Worker::Worker(ScriptExecutionContext& context, JSC::RuntimeFlags runtime
     , m_contextProxy(WorkerGlobalScopeProxy::create(*this))
     , m_runtimeFlags(runtimeFlags)
 {
-    if (!allWorkers) {
-        allWorkers = new HashSet<Worker*>;
-        networkStateNotifier().addNetworkStateChangeListener(networkStateChanged);
+    static bool addedListener;
+    if (!addedListener) {
+        platformStrategies()->loaderStrategy()->addOnlineStateChangeListener(&networkStateChanged);
+        addedListener = true;
     }
 
-    auto addResult = allWorkers->add(this);
+    auto addResult = allWorkers().add(this);
     ASSERT_UNUSED(addResult, addResult.isNewEntry);
 }
 
-ExceptionOr<Ref<Worker>> Worker::create(ScriptExecutionContext& context, const String& url, JSC::RuntimeFlags runtimeFlags)
+ExceptionOr<Ref<Worker>> Worker::create(ScriptExecutionContext& context, JSC::RuntimeFlags runtimeFlags, const String& url)
 {
     ASSERT(isMainThread());
 
@@ -92,7 +99,16 @@ ExceptionOr<Ref<Worker>> Worker::create(ScriptExecutionContext& context, const S
 
     worker->m_scriptLoader = WorkerScriptLoader::create();
     auto contentSecurityPolicyEnforcement = shouldBypassMainWorldContentSecurityPolicy ? ContentSecurityPolicyEnforcement::DoNotEnforce : ContentSecurityPolicyEnforcement::EnforceChildSrcDirective;
-    worker->m_scriptLoader->loadAsynchronously(&context, scriptURL.releaseReturnValue(), FetchOptions::Mode::SameOrigin, contentSecurityPolicyEnforcement, worker->m_identifier, worker.ptr());
+
+    ResourceRequest request { scriptURL.releaseReturnValue() };
+    request.setInitiatorIdentifier(worker->m_identifier);
+
+    FetchOptions options;
+    options.mode = FetchOptions::Mode::SameOrigin;
+    options.cache = FetchOptions::Cache::Default;
+    options.redirect = FetchOptions::Redirect::Follow;
+    options.destination = FetchOptions::Destination::Worker;
+    worker->m_scriptLoader->loadAsynchronously(context, WTFMove(request), WTFMove(options), contentSecurityPolicyEnforcement, ServiceWorkersMode::All, worker);
     return WTFMove(worker);
 }
 
@@ -100,7 +116,7 @@ Worker::~Worker()
 {
     ASSERT(isMainThread());
     ASSERT(scriptExecutionContext()); // The context is protected by worker context proxy, so it cannot be destroyed while a Worker exists.
-    allWorkers->remove(this);
+    allWorkers().remove(this);
     m_contextProxy.workerObjectDestroyed();
 }
 
@@ -115,7 +131,8 @@ ExceptionOr<void> Worker::postMessage(JSC::ExecState& state, JSC::JSValue messag
     auto channels = MessagePort::disentanglePorts(WTFMove(ports));
     if (channels.hasException())
         return channels.releaseException();
-    m_contextProxy.postMessageToWorkerGlobalScope(message.releaseReturnValue(), channels.releaseReturnValue());
+
+    m_contextProxy.postMessageToWorkerGlobalScope({ message.releaseReturnValue(), channels.releaseReturnValue() });
     return { };
 }
 
@@ -160,11 +177,15 @@ void Worker::didReceiveResponse(unsigned long identifier, const ResourceResponse
 
 void Worker::notifyFinished()
 {
-    if (m_scriptLoader->failed())
-        dispatchEvent(Event::create(eventNames().errorEvent, false, true));
+    auto* context = scriptExecutionContext();
+    PAL::SessionID sessionID = context ? context->sessionID() : PAL::SessionID();
+
+    if (m_scriptLoader->failed() || !sessionID.isValid())
+        dispatchEvent(Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::Yes));
     else {
+        bool isOnline = platformStrategies()->loaderStrategy()->isOnLine();
         const ContentSecurityPolicyResponseHeaders& contentSecurityPolicyResponseHeaders = m_contentSecurityPolicyResponseHeaders ? m_contentSecurityPolicyResponseHeaders.value() : scriptExecutionContext()->contentSecurityPolicy()->responseHeaders();
-        m_contextProxy.startWorkerGlobalScope(m_scriptLoader->url(), scriptExecutionContext()->userAgent(m_scriptLoader->url()), m_scriptLoader->script(), contentSecurityPolicyResponseHeaders, m_shouldBypassMainWorldContentSecurityPolicy, m_workerCreationTime, m_runtimeFlags);
+        m_contextProxy.startWorkerGlobalScope(m_scriptLoader->url(), scriptExecutionContext()->userAgent(m_scriptLoader->url()), isOnline, m_scriptLoader->script(), contentSecurityPolicyResponseHeaders, m_shouldBypassMainWorldContentSecurityPolicy, m_workerCreationTime, m_runtimeFlags, sessionID);
         InspectorInstrumentation::scriptImported(*scriptExecutionContext(), m_scriptLoader->identifier(), m_scriptLoader->script());
     }
     m_scriptLoader = nullptr;

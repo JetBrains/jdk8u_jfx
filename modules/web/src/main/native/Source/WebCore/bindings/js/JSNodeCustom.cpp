@@ -32,7 +32,6 @@
 #include "Document.h"
 #include "DocumentFragment.h"
 #include "DocumentType.h"
-#include "ExceptionCode.h"
 #include "HTMLAudioElement.h"
 #include "HTMLCanvasElement.h"
 #include "HTMLElement.h"
@@ -66,9 +65,9 @@
 #include "StyledElement.h"
 #include "Text.h"
 
-using namespace JSC;
 
 namespace WebCore {
+using namespace JSC;
 
 using namespace HTMLNames;
 
@@ -110,75 +109,9 @@ bool JSNodeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, v
     return isReachableFromDOM(&jsNode->wrapped(), visitor);
 }
 
-JSValue JSNode::insertBefore(ExecState& state)
-{
-    VM& vm = state.vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
-    if (UNLIKELY(state.argumentCount() < 2))
-        return throwException(&state, scope, createNotEnoughArgumentsError(&state));
-
-    JSValue newChildValue = state.uncheckedArgument(0);
-    auto* newChild = JSNode::toWrapped(vm, newChildValue);
-    if (UNLIKELY(!newChild))
-        return JSValue::decode(throwArgumentTypeError(state, scope, 0, "node", "Node", "insertBefore", "Node"));
-
-    propagateException(state, scope, wrapped().insertBefore(*newChild, JSNode::toWrapped(vm, state.uncheckedArgument(1))));
-    return newChildValue;
-}
-
-JSValue JSNode::replaceChild(ExecState& state)
-{
-    VM& vm = state.vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
-    if (UNLIKELY(state.argumentCount() < 2))
-        return throwException(&state, scope, createNotEnoughArgumentsError(&state));
-
-    auto* newChild = JSNode::toWrapped(vm, state.uncheckedArgument(0));
-    JSValue oldChildValue = state.uncheckedArgument(1);
-    auto* oldChild = JSNode::toWrapped(vm, oldChildValue);
-    if (UNLIKELY(!newChild || !oldChild)) {
-        if (!newChild)
-            return JSValue::decode(throwArgumentTypeError(state, scope, 0, "node", "Node", "replaceChild", "Node"));
-        return JSValue::decode(throwArgumentTypeError(state, scope, 1, "child", "Node", "replaceChild", "Node"));
-    }
-
-    propagateException(state, scope, wrapped().replaceChild(*newChild, *oldChild));
-    return oldChildValue;
-}
-
-JSValue JSNode::removeChild(ExecState& state)
-{
-    VM& vm = state.vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
-    JSValue childValue = state.argument(0);
-    auto* child = JSNode::toWrapped(vm, childValue);
-    if (UNLIKELY(!child))
-        return JSValue::decode(throwArgumentTypeError(state, scope, 0, "child", "Node", "removeChild", "Node"));
-
-    propagateException(state, scope, wrapped().removeChild(*child));
-    return childValue;
-}
-
-JSValue JSNode::appendChild(ExecState& state)
-{
-    VM& vm = state.vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
-    JSValue newChildValue = state.argument(0);
-    auto newChild = JSNode::toWrapped(vm, newChildValue);
-    if (UNLIKELY(!newChild))
-        return JSValue::decode(throwArgumentTypeError(state, scope, 0, "node", "Node", "appendChild", "Node"));
-
-    propagateException(state, scope, wrapped().appendChild(*newChild));
-    return newChildValue;
-}
-
 JSScope* JSNode::pushEventHandlerScope(ExecState* exec, JSScope* node) const
 {
-    if (inherits(exec->vm(), JSHTMLElement::info()))
+    if (inherits<JSHTMLElement>(exec->vm()))
         return jsCast<const JSHTMLElement*>(this)->pushEventHandlerScope(exec, node);
     return node;
 }
@@ -195,9 +128,9 @@ static ALWAYS_INLINE JSValue createWrapperInline(ExecState* exec, JSDOMGlobalObj
     JSDOMObject* wrapper;
     switch (node->nodeType()) {
         case Node::ELEMENT_NODE:
-            if (is<HTMLElement>(node.get()))
+            if (is<HTMLElement>(node))
                 wrapper = createJSHTMLWrapper(globalObject, static_reference_cast<HTMLElement>(WTFMove(node)));
-            else if (is<SVGElement>(node.get()))
+            else if (is<SVGElement>(node))
                 wrapper = createJSSVGWrapper(globalObject, static_reference_cast<SVGElement>(WTFMove(node)));
             else
                 wrapper = createWrapper<Element>(globalObject, WTFMove(node));
@@ -249,7 +182,7 @@ JSValue toJSNewlyCreated(ExecState* exec, JSDOMGlobalObject* globalObject, Ref<N
 JSC::JSObject* getOutOfLineCachedWrapper(JSDOMGlobalObject* globalObject, Node& node)
 {
     ASSERT(!globalObject->world().isNormal());
-    return globalObject->world().m_wrappers.get(&node);
+    return globalObject->world().wrappers().get(&node);
 }
 
 void willCreatePossiblyOrphanedTreeByRemovalSlowCase(Node* root)

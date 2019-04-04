@@ -20,11 +20,9 @@
 
 #pragma once
 
-#include "CSSParserMode.h"
 #include "ExceptionOr.h"
 #include "StyleSheet.h"
 #include <memory>
-#include <wtf/HashMap.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/text/AtomicStringHash.h>
@@ -66,7 +64,6 @@ public:
 
     WEBCORE_EXPORT RefPtr<CSSRuleList> cssRules();
     WEBCORE_EXPORT ExceptionOr<unsigned> insertRule(const String& rule, unsigned index);
-    ExceptionOr<unsigned> deprecatedInsertRule(const String& rule);
     WEBCORE_EXPORT ExceptionOr<void> deleteRule(unsigned index);
 
     WEBCORE_EXPORT RefPtr<CSSRuleList> rules();
@@ -134,7 +131,7 @@ private:
     CSSStyleSheet(Ref<StyleSheetContents>&&, Node& ownerNode, const TextPosition& startPosition, bool isInlineStylesheet, const std::optional<bool>&);
 
     bool isCSSStyleSheet() const final { return true; }
-    String type() const final { return ASCIILiteral("text/css"); }
+    String type() const final { return "text/css"_s; }
 
     bool canAccessRules() const;
 

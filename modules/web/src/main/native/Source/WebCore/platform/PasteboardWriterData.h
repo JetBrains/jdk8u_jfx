@@ -25,28 +25,67 @@
 
 #pragma once
 
+#include "URL.h"
 #include <wtf/Optional.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+class SharedBuffer;
+
 class PasteboardWriterData final {
 public:
-    PasteboardWriterData();
-    ~PasteboardWriterData();
+    WEBCORE_EXPORT PasteboardWriterData();
+    WEBCORE_EXPORT ~PasteboardWriterData();
+
+    WEBCORE_EXPORT bool isEmpty() const;
 
     struct PlainText {
         bool canSmartCopyOrDelete;
         String text;
     };
 
-    WEBCORE_EXPORT bool isEmpty() const;
+    struct WebContent {
+        WebContent();
+        ~WebContent();
+
+#if PLATFORM(COCOA)
+        String contentOrigin;
+        bool canSmartCopyOrDelete;
+        RefPtr<SharedBuffer> dataInWebArchiveFormat;
+        RefPtr<SharedBuffer> dataInRTFDFormat;
+        RefPtr<SharedBuffer> dataInRTFFormat;
+        RefPtr<SharedBuffer> dataInAttributedStringFormat;
+        String dataInHTMLFormat;
+        String dataInStringFormat;
+        Vector<String> clientTypes;
+        Vector<RefPtr<SharedBuffer>> clientData;
+#endif
+    };
 
     const std::optional<PlainText>& plainText() const { return m_plainText; }
     void setPlainText(PlainText);
 
+    struct URL {
+        WebCore::URL url;
+        String title;
+#if PLATFORM(MAC)
+        String userVisibleForm;
+#elif PLATFORM(GTK)
+        String markup;
+#endif
+    };
+
+    const std::optional<URL>& url() const { return m_url; }
+    void setURL(URL);
+
+    const std::optional<WebContent>& webContent() const { return m_webContent; }
+    void setWebContent(WebContent);
+
 private:
     std::optional<PlainText> m_plainText;
+    std::optional<URL> m_url;
+    std::optional<WebContent> m_webContent;
 };
 
 }

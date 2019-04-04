@@ -26,7 +26,6 @@
 #pragma once
 
 #include "HistoryItem.h"
-#include "Timer.h"
 #include <wtf/Forward.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/Noncopyable.h>
@@ -69,15 +68,20 @@ public:
 #endif
 
 private:
-    PageCache() = default; // Use singleton() instead.
+    PageCache();
     ~PageCache() = delete; // Make sure nobody accidentally calls delete -- WebCore does not delete singletons.
 
     static bool canCachePageContainingThisFrame(Frame&);
 
     void prune(PruningReason);
+    void dump() const;
 
     ListHashSet<RefPtr<HistoryItem>> m_items;
     unsigned m_maxSize {0};
+
+#if !ASSERT_DISABLED
+    bool m_isInRemoveAllItemsForPage { false };
+#endif
 
     friend class WTF::NeverDestroyed<PageCache>;
 };

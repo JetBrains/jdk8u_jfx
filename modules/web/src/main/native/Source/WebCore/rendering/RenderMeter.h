@@ -23,13 +23,13 @@
 #if ENABLE(METER_ELEMENT)
 
 #include "RenderBlockFlow.h"
-#include "RenderWidget.h"
 
 namespace WebCore {
 
 class HTMLMeterElement;
 
 class RenderMeter final : public RenderBlockFlow {
+    WTF_MAKE_ISO_ALLOCATED(RenderMeter);
 public:
     RenderMeter(HTMLElement&, RenderStyle&&);
     virtual ~RenderMeter();

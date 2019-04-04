@@ -23,6 +23,9 @@
 
 namespace WebCore {
 
+enum class CanWrap : bool { No, Yes };
+enum class DidWrap : bool { No, Yes };
+
 class Frame;
 class TreeScope;
 
@@ -47,7 +50,6 @@ public:
     WEBCORE_EXPORT void setName(const AtomicString&);
     WEBCORE_EXPORT void clearName();
     WEBCORE_EXPORT Frame* parent() const;
-    void setParent(Frame* parent) { m_parent = parent; }
 
     Frame* nextSibling() const { return m_nextSibling.get(); }
     Frame* previousSibling() const { return m_previousSibling; }
@@ -62,10 +64,10 @@ public:
     WEBCORE_EXPORT Frame* traverseNext(const Frame* stayWithin = nullptr) const;
     // Rendered means being the main frame or having an ownerRenderer. It may not have been parented in the Widget tree yet (see WidgetHierarchyUpdatesSuspensionScope).
     WEBCORE_EXPORT Frame* traverseNextRendered(const Frame* stayWithin = nullptr) const;
-    WEBCORE_EXPORT Frame* traverseNextWithWrap(bool) const;
-    WEBCORE_EXPORT Frame* traversePreviousWithWrap(bool) const;
+    WEBCORE_EXPORT Frame* traverseNext(CanWrap, DidWrap* = nullptr) const;
+    WEBCORE_EXPORT Frame* traversePrevious(CanWrap, DidWrap* = nullptr) const;
 
-    Frame* traverseNextInPostOrderWithWrap(bool) const;
+    Frame* traverseNextInPostOrder(CanWrap) const;
 
     WEBCORE_EXPORT void appendChild(Frame&);
     void detachFromParent() { m_parent = nullptr; }
@@ -75,16 +77,13 @@ public:
     Frame* child(const AtomicString& name) const;
     WEBCORE_EXPORT Frame* find(const AtomicString& name) const;
     WEBCORE_EXPORT unsigned childCount() const;
-
-    AtomicString uniqueChildName(const AtomicString& requestedName) const;
-
     WEBCORE_EXPORT Frame& top() const;
 
     WEBCORE_EXPORT Frame* scopedChild(unsigned index) const;
     WEBCORE_EXPORT Frame* scopedChild(const AtomicString& name) const;
     unsigned scopedChildCount() const;
 
-    unsigned indexInParent() const;
+    void resetFrameIdentifiers() { m_frameIDGenerator = 0; }
 
 private:
     Frame* deepFirstChild() const;
@@ -94,6 +93,9 @@ private:
     Frame* scopedChild(unsigned index, TreeScope*) const;
     Frame* scopedChild(const AtomicString& name, TreeScope*) const;
     unsigned scopedChildCount(TreeScope*) const;
+
+    AtomicString uniqueChildName(const AtomicString& requestedName) const;
+    AtomicString generateUniqueName() const;
 
     Frame& m_thisFrame;
 
@@ -106,6 +108,7 @@ private:
     RefPtr<Frame> m_firstChild;
     Frame* m_lastChild;
     mutable unsigned m_scopedChildCount;
+    mutable uint64_t m_frameIDGenerator { 0 };
 };
 
 } // namespace WebCore

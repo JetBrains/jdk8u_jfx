@@ -33,13 +33,18 @@
 #include "FrameLoader.h"
 #include "FrameLoaderClient.h"
 #include "HTMLBodyElement.h"
+#include "HTMLCollection.h"
+#include "HTMLFrameElement.h"
 #include "HTMLNames.h"
 #include "Length.h"
 #include "MouseEvent.h"
 #include "RenderFrameSet.h"
 #include "Text.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLFrameSetElement);
 
 using namespace HTMLNames;
 
@@ -154,7 +159,7 @@ bool HTMLFrameSetElement::rendererIsNeeded(const RenderStyle& style)
 {
     // For compatibility, frames render even when display: none is set.
     // However, we delay creating a renderer until stylesheets have loaded.
-    return !style.isPlaceholderStyle();
+    return !style.isNotFinal();
 }
 
 RenderPtr<RenderElement> HTMLFrameSetElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
@@ -165,7 +170,7 @@ RenderPtr<RenderElement> HTMLFrameSetElement::createElementRenderer(RenderStyle&
     return createRenderer<RenderFrameSet>(*this, WTFMove(style));
 }
 
-HTMLFrameSetElement* HTMLFrameSetElement::findContaining(Element* descendant)
+RefPtr<HTMLFrameSetElement> HTMLFrameSetElement::findContaining(Element* descendant)
 {
     return ancestorsOfType<HTMLFrameSetElement>(*descendant).first();
 }
@@ -174,7 +179,7 @@ void HTMLFrameSetElement::willAttachRenderers()
 {
     // Inherit default settings from parent frameset.
     // FIXME: This is not dynamic.
-    const HTMLFrameSetElement* containingFrameSet = findContaining(this);
+    const auto containingFrameSet = findContaining(this);
     if (!containingFrameSet)
         return;
     if (!m_frameborderSet)
@@ -206,24 +211,40 @@ void HTMLFrameSetElement::willRecalcStyle(Style::Change)
         renderer()->setNeedsLayout();
 }
 
-Node::InsertionNotificationRequest HTMLFrameSetElement::insertedInto(ContainerNode& insertionPoint)
+Node::InsertedIntoAncestorResult HTMLFrameSetElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedInto(insertionPoint);
-    if (insertionPoint.isConnected()) {
-        if (Frame* frame = document().frame())
+    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    if (insertionType.connectedToDocument) {
+        if (RefPtr<Frame> frame = document().frame())
             frame->loader().client().dispatchDidBecomeFrameset(document().isFrameSet());
     }
 
-    return InsertionDone;
+    return InsertedIntoAncestorResult::Done;
 }
 
-void HTMLFrameSetElement::removedFrom(ContainerNode& insertionPoint)
+void HTMLFrameSetElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFrom(insertionPoint);
-    if (insertionPoint.isConnected()) {
-        if (Frame* frame = document().frame())
+    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    if (removalType.disconnectedFromDocument) {
+        if (RefPtr<Frame> frame = document().frame())
             frame->loader().client().dispatchDidBecomeFrameset(document().isFrameSet());
     }
+}
+
+WindowProxy* HTMLFrameSetElement::namedItem(const AtomicString& name)
+{
+    auto frameElement = makeRefPtr(children()->namedItem(name));
+    if (!is<HTMLFrameElement>(frameElement))
+        return nullptr;
+
+    return downcast<HTMLFrameElement>(*frameElement).contentWindow();
+}
+
+Vector<AtomicString> HTMLFrameSetElement::supportedPropertyNames() const
+{
+    // NOTE: Left empty as no specification defines this named getter and we
+    //       have not historically exposed these named items for enumeration.
+    return { };
 }
 
 } // namespace WebCore

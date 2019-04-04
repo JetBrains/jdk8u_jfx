@@ -75,9 +75,7 @@ Ref<FilterEffectRenderer> FilterEffectRenderer::create()
     return adoptRef(*new FilterEffectRenderer);
 }
 
-FilterEffectRenderer::~FilterEffectRenderer()
-{
-}
+FilterEffectRenderer::~FilterEffectRenderer() = default;
 
 GraphicsContext* FilterEffectRenderer::inputContext()
 {
@@ -119,6 +117,9 @@ RefPtr<FilterEffect> FilterEffectRenderer::buildReferenceFilter(RenderElement& r
             continue;
 
         effectElement.setStandardAttributes(effect.get());
+        if (effectElement.renderer())
+            effect->setOperatingColorSpace(effectElement.renderer()->style().svgStyle().colorInterpolationFilters() == ColorInterpolation::LinearRGB ? ColorSpaceLinearRGB : ColorSpaceSRGB);
+
         builder->add(effectElement.result(), effect);
         m_effects.append(*effect);
     }
@@ -142,7 +143,7 @@ bool FilterEffectRenderer::build(RenderElement& renderer, const FilterOperations
         case FilterOperation::REFERENCE: {
             auto& referenceOperation = downcast<ReferenceFilterOperation>(filterOperation);
             effect = buildReferenceFilter(renderer, *previousEffect, referenceOperation);
-            referenceOperation.setFilterEffect(effect);
+            referenceOperation.setFilterEffect(effect.copyRef());
             break;
         }
         case FilterOperation::GRAYSCALE: {
@@ -228,6 +229,9 @@ bool FilterEffectRenderer::build(RenderElement& renderer, const FilterOperations
             effect = FEComponentTransfer::create(*this, transferFunction, transferFunction, transferFunction, nullFunction);
             break;
         }
+        case FilterOperation::APPLE_INVERT_LIGHTNESS:
+            ASSERT_NOT_REACHED(); // APPLE_INVERT_LIGHTNESS is only used in -apple-color-filter.
+            break;
         case FilterOperation::OPACITY: {
             auto& componentTransferOperation = downcast<BasicComponentTransferFilterOperation>(filterOperation);
             ComponentTransferFunction transferFunction;
@@ -365,7 +369,7 @@ LayoutRect FilterEffectRenderer::computeSourceImageRectForDirtyRect(const Layout
 
 ImageBuffer* FilterEffectRenderer::output() const
 {
-    return m_effects.last()->asImageBuffer();
+    return m_effects.last()->imageBufferResult();
 }
 
 void FilterEffectRenderer::setMaxEffectRects(const FloatRect& effectRect)
@@ -439,7 +443,7 @@ bool FilterEffectRendererHelper::beginFilterEffect()
 
     // Translate the context so that the contents of the layer is captured in the offscreen memory buffer.
     sourceGraphicsContext->save();
-    sourceGraphicsContext->translate(-m_paintOffset.x(), -m_paintOffset.y());
+    sourceGraphicsContext->translate(-m_paintOffset);
     sourceGraphicsContext->clearRect(m_repaintRect);
     sourceGraphicsContext->clip(m_repaintRect);
 

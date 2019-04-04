@@ -1,6 +1,28 @@
 /*
- * Copyright (c) 2012, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2018, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
+
 #include "config.h"
 
 #include "Chrome.h"
@@ -40,16 +62,26 @@ jclass getJScrollBarThemeClass()
 
 JLObject getJScrollBarTheme(Scrollbar& sb)
 {
-    FrameView* fv = sb.root();
+    FrameView* fv = sb.enabled() ? sb.root() : nullptr;
     if (!fv) {
         // the scrollbar has been detached
         return 0;
     }
+
     Page* page = fv->frame().page();
-    JLObject jWebPage = ((ChromeClientJava*)&page->chrome().client())->platformPage();
+    if (!page) {
+        return 0;
+    }
+
+    auto& chromeClient = page->chrome().client();
+    if (!chromeClient.isJavaChromeClient()) {
+        // Non Java ChromeClient, might be a utility Page(svg?), refer Page::isUtilityPage
+        return 0;
+    }
+
+    JLObject jWebPage = static_cast<ChromeClientJava&>(chromeClient).platformPage();
 
     JNIEnv* env = WebCore_GetJavaEnv();
-
     static jmethodID mid  = env->GetMethodID(
         PG_GetWebPageClass(env),
         "getScrollBarTheme",
@@ -166,7 +198,7 @@ IntRect ScrollbarThemeJava::trackRect(Scrollbar& scrollbar, bool) {
     return getPartRect(scrollbar, TrackBGPart);
 }
 
-int ScrollbarThemeJava::scrollbarThickness(ScrollbarControlSize)
+int ScrollbarThemeJava::scrollbarThickness(ScrollbarControlSize, ScrollbarExpansionState)
 {
     JNIEnv* env = WebCore_GetJavaEnv();
 

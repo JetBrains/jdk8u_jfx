@@ -1,15 +1,34 @@
 /*
- * Copyright (c) 2012, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2018, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 #pragma once
 
-#if USE(ACCELERATED_COMPOSITING)
-#include <UnicodeJava.h>
 #include "GraphicsLayerClient.h"
-#endif
 #include "IntRect.h"
 #include "PrintContext.h"
+#include "RQRef.h"
 #include "ScrollTypes.h"
 
 #include <jni.h> // todo tav remove when building w/ pch
@@ -29,9 +48,7 @@ class PlatformKeyboardEvent;
 class TextureMapper;
 
 class WebPage
-#if USE(ACCELERATED_COMPOSITING)
     : GraphicsLayerClient
-#endif
 {
 public:
     WebPage(std::unique_ptr<Page> page);
@@ -75,34 +92,31 @@ public:
     int beginPrinting(float width, float height);
     void print(GraphicsContext& gc, int pageIndex, float pageWidth);
     void endPrinting();
-#if USE(ACCELERATED_COMPOSITING)
     void setRootChildLayer(GraphicsLayer*);
     void setNeedsOneShotDrawingSynchronization();
     void scheduleCompositingLayerSync();
-#endif
     void debugStarted();
     void debugEnded();
     void enableWatchdog();
     void disableWatchdog();
 
+    RefPtr<RQRef> jRenderTheme();
+
 private:
     void requestJavaRepaint(const IntRect&);
-#if USE(ACCELERATED_COMPOSITING)
     void markForSync();
     void syncLayers();
     IntRect pageRect();
     void renderCompositedLayers(GraphicsContext&, const IntRect&);
 
     // GraphicsLayerClient
-    virtual void notifyAnimationStarted(const GraphicsLayer*, double);
-    virtual void notifyFlushRequired(const GraphicsLayer*);
-    virtual void paintContents(const GraphicsLayer*,
-                               GraphicsContext&,
-                               GraphicsLayerPaintingPhase,
-                               const FloatRect&);
-    virtual bool showDebugBorders(const GraphicsLayer*) const;
-    virtual bool showRepaintCounter(const GraphicsLayer*) const;
-#endif
+    void notifyAnimationStarted(const GraphicsLayer*, const String& /*animationKey*/, MonotonicTime /*time*/) override;
+    void notifyFlushRequired(const GraphicsLayer*) override;
+    void paintContents(const GraphicsLayer*,
+                       GraphicsContext&,
+                       GraphicsLayerPaintingPhase,
+                       const FloatRect&,
+                       GraphicsLayerPaintBehavior) override;
 
     bool keyEvent(const PlatformKeyboardEvent& event);
     bool charEvent(const PlatformKeyboardEvent& event);
@@ -118,20 +132,19 @@ private:
 
     std::unique_ptr<Page> m_page;
     std::unique_ptr<PrintContext> m_printContext;
+    RefPtr<RQRef> m_jRenderTheme;
 
-#if USE(ACCELERATED_COMPOSITING)
     std::unique_ptr<GraphicsLayer> m_rootLayer;
     std::unique_ptr<TextureMapper> m_textureMapper;
-    bool m_syncLayers;
-#endif
+    bool m_syncLayers { false };
 
     // Webkit expects keyPress events to be suppressed if the associated keyDown
     // event was handled. Safari implements this behavior by peeking out the
     // associated WM_CHAR event if the keydown was handled. We emulate
     // this behavior by setting this flag if the keyDown was handled.
-    bool m_suppressNextKeypressEvent;
+    bool m_suppressNextKeypressEvent { false };
 
-    bool m_isDebugging;
+    bool m_isDebugging { false };
     static int globalDebugSessionCounter;
 };
 

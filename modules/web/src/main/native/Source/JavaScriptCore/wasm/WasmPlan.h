@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,88 +28,76 @@
 #if ENABLE(WEBASSEMBLY)
 
 #include "CompilationResult.h"
-#include "VM.h"
 #include "WasmB3IRGenerator.h"
-#include "WasmFormat.h"
+#include "WasmEmbedder.h"
+#include "WasmModuleInformation.h"
 #include <wtf/Bag.h>
+#include <wtf/SharedTask.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
 
 class CallLinkInfo;
-class JSGlobalObject;
-class JSWebAssemblyCallee;
 
 namespace Wasm {
 
-class Plan {
+struct Context;
+
+class Plan : public ThreadSafeRefCounted<Plan> {
 public:
-    JS_EXPORT_PRIVATE Plan(VM*, Vector<uint8_t>);
-    JS_EXPORT_PRIVATE Plan(VM*, const uint8_t*, size_t);
-    JS_EXPORT_PRIVATE ~Plan();
+    typedef void CallbackType(Plan&);
+    using CompletionTask = RefPtr<SharedTask<CallbackType>>;
 
-    bool parseAndValidateModule();
+    static CompletionTask dontFinalize() { return createSharedTask<CallbackType>([](Plan&) { }); }
+    Plan(Context*, Ref<ModuleInformation>, CompletionTask&&, CreateEmbedderWrapper&&, ThrowWasmException);
+    Plan(Context*, Ref<ModuleInformation>, CompletionTask&&);
 
-    JS_EXPORT_PRIVATE void run();
+    // Note: This constructor should only be used if you are not actually building a module e.g. validation/function tests
+    JS_EXPORT_PRIVATE Plan(Context*, const uint8_t*, size_t, CompletionTask&&);
+    virtual JS_EXPORT_PRIVATE ~Plan();
 
-    JS_EXPORT_PRIVATE void initializeCallees(JSGlobalObject*, std::function<void(unsigned, JSWebAssemblyCallee*, JSWebAssemblyCallee*)>);
+    // If you guarantee the ordering here, you can rely on FIFO of the
+    // completion tasks being called.
+    void addCompletionTask(Context*, CompletionTask&&);
 
-    bool WARN_UNUSED_RETURN failed() const { return m_failed; }
-    const String& errorMessage() const
-    {
-        RELEASE_ASSERT(failed());
-        return m_errorMessage;
-    }
+    void setMode(MemoryMode mode) { m_mode = mode; }
+    MemoryMode mode() const { return m_mode; }
 
-    Vector<Export>& exports() const
-    {
-        RELEASE_ASSERT(!failed());
-        return m_moduleInformation->exports;
-    }
+    const String& errorMessage() const { return m_errorMessage; }
 
-    size_t internalFunctionCount() const
-    {
-        RELEASE_ASSERT(!failed());
-        return m_wasmInternalFunctions.size();
-    }
+    bool WARN_UNUSED_RETURN failed() const { return !errorMessage().isNull(); }
+    virtual bool hasWork() const = 0;
+    enum CompilationEffort { All, Partial };
+    virtual void work(CompilationEffort = All) = 0;
+    virtual bool multiThreaded() const = 0;
 
-    std::unique_ptr<ModuleInformation>&& takeModuleInformation()
-    {
-        RELEASE_ASSERT(!failed());
-        return WTFMove(m_moduleInformation);
-    }
+    void waitForCompletion();
+    // Returns true if it cancelled the plan.
+    bool tryRemoveContextAndCancelIfLast(Context&);
 
-    Bag<CallLinkInfo>&& takeCallLinkInfos()
-    {
-        RELEASE_ASSERT(!failed());
-        return WTFMove(m_callLinkInfos);
-    }
+protected:
+    void runCompletionTasks(const AbstractLocker&);
+    void fail(const AbstractLocker&, String&& errorMessage);
 
-    Vector<WasmExitStubs>&& takeWasmExitStubs()
-    {
-        RELEASE_ASSERT(!failed());
-        return WTFMove(m_wasmExitStubs);
-    }
+    virtual bool isComplete() const = 0;
+    virtual void complete(const AbstractLocker&) = 0;
 
-private:
-    std::unique_ptr<ModuleInformation> m_moduleInformation;
-    Vector<FunctionLocationInBinary> m_functionLocationInBinary;
-    Vector<SignatureIndex> m_moduleSignatureIndicesToUniquedSignatureIndices;
-    Bag<CallLinkInfo> m_callLinkInfos;
-    Vector<WasmExitStubs> m_wasmExitStubs;
-    Vector<std::unique_ptr<WasmInternalFunction>> m_wasmInternalFunctions;
-    Vector<CompilationContext> m_compilationContexts;
+    Ref<ModuleInformation> m_moduleInformation;
 
-    VM* m_vm;
-    Vector<Vector<UnlinkedWasmToWasmCall>> m_unlinkedWasmToWasmCalls;
+    Vector<std::pair<Context*, CompletionTask>, 1> m_completionTasks;
+
+    CreateEmbedderWrapper m_createEmbedderWrapper;
+    ThrowWasmException m_throwWasmException { nullptr };
+
     const uint8_t* m_source;
     const size_t m_sourceLength;
-    bool m_failed { true };
     String m_errorMessage;
-    uint32_t m_currentIndex;
+    MemoryMode m_mode { MemoryMode::BoundsChecking };
     Lock m_lock;
+    Condition m_completed;
 };
+
 
 } } // namespace JSC::Wasm
 

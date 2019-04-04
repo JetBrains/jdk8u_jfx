@@ -30,6 +30,7 @@ class HTMLElement;
 class Position;
 
 class RenderLineBreak final : public RenderBoxModelObject {
+    WTF_MAKE_ISO_ALLOCATED(RenderLineBreak);
 public:
     RenderLineBreak(HTMLElement&, RenderStyle&&);
     virtual ~RenderLineBreak();
@@ -54,6 +55,7 @@ public:
 #if PLATFORM(IOS)
 void collectSelectionRects(Vector<SelectionRect>&, unsigned startOffset = 0, unsigned endOffset = std::numeric_limits<unsigned>::max()) override;
 #endif
+    void ensureLineBoxes();
 
 private:
     void node() const = delete;
@@ -61,7 +63,7 @@ private:
     bool canHaveChildren() const override { return false; }
     void paint(PaintInfo&, const LayoutPoint&) override { }
 
-    VisiblePosition positionForPoint(const LayoutPoint&, const RenderRegion*) override;
+    VisiblePosition positionForPoint(const LayoutPoint&, const RenderFragmentContainer*) override;
     int caretMinOffset() const override;
     int caretMaxOffset() const override;
     bool canBeSelectionLeaf() const override;

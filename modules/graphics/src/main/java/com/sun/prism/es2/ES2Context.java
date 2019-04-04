@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -271,7 +271,12 @@ class ES2Context extends BaseShaderContext {
         }
 
         scratchTx.set(projViewTx);
-        updateRawMatrix(scratchTx.mul(xform));
+        final GeneralTransform3D perspectiveTransform = getPerspectiveTransformNoClone();
+        if (perspectiveTransform.isIdentity()) {
+            updateRawMatrix(scratchTx.mul(xform));
+        } else {
+            updateRawMatrix(scratchTx.mul(xform).mul(perspectiveTransform));
+        }
 
         ES2Shader es2shader = (ES2Shader) shader;
         es2shader.setMatrix("mvpMatrix", rawMatrix);

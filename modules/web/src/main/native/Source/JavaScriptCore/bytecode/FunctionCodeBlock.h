@@ -34,10 +34,16 @@
 
 namespace JSC {
 
-class FunctionCodeBlock : public CodeBlock {
+class FunctionCodeBlock final : public CodeBlock {
 public:
     typedef CodeBlock Base;
     DECLARE_INFO;
+
+    template<typename>
+    static IsoSubspace* subspaceFor(VM& vm)
+    {
+        return &vm.functionCodeBlockSpace.space;
+    }
 
     static FunctionCodeBlock* create(VM* vm, CopyParsedBlockTag, FunctionCodeBlock& other)
     {
@@ -52,13 +58,14 @@ public:
     {
         FunctionCodeBlock* instance = new (NotNull, allocateCell<FunctionCodeBlock>(vm->heap))
             FunctionCodeBlock(vm, vm->functionCodeBlockStructure.get(), ownerExecutable, unlinkedCodeBlock, scope, WTFMove(sourceProvider), sourceOffset, firstLineColumnOffset);
-        instance->finishCreation(*vm, ownerExecutable, unlinkedCodeBlock, scope);
+        if (!instance->finishCreation(*vm, ownerExecutable, unlinkedCodeBlock, scope))
+            return nullptr;
         return instance;
     }
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
     {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(CellType, StructureFlags), info());
+        return Structure::create(vm, globalObject, prototype, TypeInfo(CodeBlockType, StructureFlags), info());
     }
 
 private:

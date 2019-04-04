@@ -32,7 +32,6 @@
 #include "IDBCursorDirection.h"
 #include "IDBKeyPath.h"
 #include "IDBObjectStoreInfo.h"
-#include <wtf/HashSet.h>
 
 namespace JSC {
 class ExecState;
@@ -56,6 +55,8 @@ enum class ObjectStoreOverwriteMode;
 }
 
 class IDBObjectStore final : public ActiveDOMObject {
+    WTF_MAKE_NONCOPYABLE(IDBObjectStore);
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     IDBObjectStore(ScriptExecutionContext&, const IDBObjectStoreInfo&, IDBTransaction&);
     ~IDBObjectStore();

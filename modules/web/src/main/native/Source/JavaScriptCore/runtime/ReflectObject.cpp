@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2015-2017 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,7 +29,6 @@
 #include "BuiltinNames.h"
 #include "JSCInlines.h"
 #include "JSGlobalObjectFunctions.h"
-#include "JSPropertyNameIterator.h"
 #include "Lookup.h"
 #include "ObjectConstructor.h"
 
@@ -37,7 +36,6 @@ namespace JSC {
 
 static EncodedJSValue JSC_HOST_CALL reflectObjectConstruct(ExecState*);
 static EncodedJSValue JSC_HOST_CALL reflectObjectDefineProperty(ExecState*);
-static EncodedJSValue JSC_HOST_CALL reflectObjectEnumerate(ExecState*);
 static EncodedJSValue JSC_HOST_CALL reflectObjectGet(ExecState*);
 static EncodedJSValue JSC_HOST_CALL reflectObjectGetOwnPropertyDescriptor(ExecState*);
 static EncodedJSValue JSC_HOST_CALL reflectObjectGetPrototypeOf(ExecState*);
@@ -55,7 +53,7 @@ namespace JSC {
 
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(ReflectObject);
 
-const ClassInfo ReflectObject::s_info = { "Object", &Base::s_info, &reflectObjectTable, CREATE_METHOD_TABLE(ReflectObject) };
+const ClassInfo ReflectObject::s_info = { "Object", &Base::s_info, &reflectObjectTable, nullptr, CREATE_METHOD_TABLE(ReflectObject) };
 
 /* Source for ReflectObject.lut.h
 @begin reflectObjectTable
@@ -63,10 +61,9 @@ const ClassInfo ReflectObject::s_info = { "Object", &Base::s_info, &reflectObjec
     construct                reflectObjectConstruct                DontEnum|Function 2
     defineProperty           reflectObjectDefineProperty           DontEnum|Function 3
     deleteProperty           JSBuiltin                             DontEnum|Function 2
-    enumerate                reflectObjectEnumerate                DontEnum|Function 1
     get                      reflectObjectGet                      DontEnum|Function 2
     getOwnPropertyDescriptor reflectObjectGetOwnPropertyDescriptor DontEnum|Function 2
-    getPrototypeOf           reflectObjectGetPrototypeOf           DontEnum|Function 1
+    getPrototypeOf           reflectObjectGetPrototypeOf           DontEnum|Function 1 ReflectGetPrototypeOfIntrinsic
     has                      JSBuiltin                             DontEnum|Function 2
     isExtensible             reflectObjectIsExtensible             DontEnum|Function 1
     ownKeys                  reflectObjectOwnKeys                  DontEnum|Function 1
@@ -86,8 +83,8 @@ void ReflectObject::finishCreation(VM& vm, JSGlobalObject* globalObject)
     Base::finishCreation(vm);
     ASSERT(inherits(vm, info()));
 
-    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().ownKeysPrivateName(), reflectObjectOwnKeys, DontEnum | DontDelete | ReadOnly, 1);
-    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().getOwnPropertyDescriptorPrivateName(), reflectObjectGetOwnPropertyDescriptor, DontEnum | DontDelete | ReadOnly, 2);
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().ownKeysPrivateName(), reflectObjectOwnKeys, PropertyAttribute::DontEnum | PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly, 1);
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().getOwnPropertyDescriptorPrivateName(), reflectObjectGetOwnPropertyDescriptor, PropertyAttribute::DontEnum | PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly, 2);
 }
 
 // ------------------------------ Functions --------------------------------
@@ -100,30 +97,34 @@ EncodedJSValue JSC_HOST_CALL reflectObjectConstruct(ExecState* exec)
 
     JSValue target = exec->argument(0);
     if (!target.isObject())
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.construct requires the first argument be a constructor")));
+        return JSValue::encode(throwTypeError(exec, scope, "Reflect.construct requires the first argument be a constructor"_s));
 
     ConstructData constructData;
     ConstructType constructType;
-    if (!target.isConstructor(constructType, constructData))
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.construct requires the first argument be a constructor")));
+    if (!target.isConstructor(vm, constructType, constructData))
+        return JSValue::encode(throwTypeError(exec, scope, "Reflect.construct requires the first argument be a constructor"_s));
 
     JSValue newTarget = target;
     if (exec->argumentCount() >= 3) {
         newTarget = exec->argument(2);
-        if (!newTarget.isConstructor())
-            return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.construct requires the third argument be a constructor if present")));
+        if (!newTarget.isConstructor(vm))
+            return JSValue::encode(throwTypeError(exec, scope, "Reflect.construct requires the third argument be a constructor if present"_s));
     }
 
     MarkedArgumentBuffer arguments;
     JSObject* argumentsObject = jsDynamicCast<JSObject*>(vm, exec->argument(1));
     if (!argumentsObject)
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.construct requires the second argument be an object")));
+        return JSValue::encode(throwTypeError(exec, scope, "Reflect.construct requires the second argument be an object"_s));
 
-    createListFromArrayLike(exec, argumentsObject, RuntimeTypeMaskAllTypes, ASCIILiteral("This error must not be raised"), [&] (JSValue value, RuntimeType) -> bool {
+    createListFromArrayLike(exec, argumentsObject, RuntimeTypeMaskAllTypes, "This error must not be raised"_s, [&] (JSValue value, RuntimeType) -> bool {
         arguments.append(value);
         return false;
     });
-    RETURN_IF_EXCEPTION(scope, encodedJSValue());
+    RETURN_IF_EXCEPTION(scope, (arguments.overflowCheckNotNeeded(), encodedJSValue()));
+    if (UNLIKELY(arguments.hasOverflowed())) {
+        throwOutOfMemoryError(exec, scope);
+        return encodedJSValue();
+    }
 
     scope.release();
     return JSValue::encode(construct(exec, target, constructType, constructData, arguments, newTarget));
@@ -137,37 +138,23 @@ EncodedJSValue JSC_HOST_CALL reflectObjectDefineProperty(ExecState* exec)
 
     JSValue target = exec->argument(0);
     if (!target.isObject())
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.defineProperty requires the first argument be an object")));
+        return JSValue::encode(throwTypeError(exec, scope, "Reflect.defineProperty requires the first argument be an object"_s));
     auto propertyName = exec->argument(1).toPropertyKey(exec);
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
 
     PropertyDescriptor descriptor;
     bool success = toPropertyDescriptor(exec, exec->argument(2), descriptor);
-    ASSERT(!scope.exception() == success);
+    EXCEPTION_ASSERT(!scope.exception() == success);
     if (UNLIKELY(!success))
         return encodedJSValue();
-    ASSERT((descriptor.attributes() & Accessor) || (!descriptor.isAccessorDescriptor()));
-    ASSERT(!scope.exception());
+    ASSERT((descriptor.attributes() & PropertyAttribute::Accessor) || (!descriptor.isAccessorDescriptor()));
+    scope.assertNoException();
 
     // Reflect.defineProperty should not throw an error when the defineOwnProperty operation fails.
     bool shouldThrow = false;
     JSObject* targetObject = asObject(target);
     scope.release();
     return JSValue::encode(jsBoolean(targetObject->methodTable(vm)->defineOwnProperty(targetObject, exec, propertyName, descriptor, shouldThrow)));
-}
-
-// FIXME: Reflect.enumerate is removed in ECMA 2016 draft.
-// http://www.ecma-international.org/ecma-262/6.0/#sec-reflect.enumerate
-EncodedJSValue JSC_HOST_CALL reflectObjectEnumerate(ExecState* exec)
-{
-    VM& vm = exec->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
-    JSValue target = exec->argument(0);
-    if (!target.isObject())
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.enumerate requires the first argument be an object")));
-    scope.release();
-    return JSValue::encode(JSPropertyNameIterator::create(exec, exec->lexicalGlobalObject()->propertyNameIteratorStructure(), asObject(target)));
 }
 
 // https://tc39.github.io/ecma262/#sec-reflect.get
@@ -178,7 +165,7 @@ EncodedJSValue JSC_HOST_CALL reflectObjectGet(ExecState* exec)
 
     JSValue target = exec->argument(0);
     if (!target.isObject())
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.get requires the first argument be an object")));
+        return JSValue::encode(throwTypeError(exec, scope, "Reflect.get requires the first argument be an object"_s));
 
     const Identifier propertyName = exec->argument(1).toPropertyKey(exec);
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
@@ -200,7 +187,7 @@ EncodedJSValue JSC_HOST_CALL reflectObjectGetOwnPropertyDescriptor(ExecState* ex
 
     JSValue target = exec->argument(0);
     if (!target.isObject())
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.getOwnPropertyDescriptor requires the first argument be an object")));
+        return JSValue::encode(throwTypeError(exec, scope, "Reflect.getOwnPropertyDescriptor requires the first argument be an object"_s));
 
     auto key = exec->argument(1).toPropertyKey(exec);
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
@@ -217,7 +204,7 @@ EncodedJSValue JSC_HOST_CALL reflectObjectGetPrototypeOf(ExecState* exec)
 
     JSValue target = exec->argument(0);
     if (!target.isObject())
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.getPrototypeOf requires the first argument be an object")));
+        return JSValue::encode(throwTypeError(exec, scope, "Reflect.getPrototypeOf requires the first argument be an object"_s));
     scope.release();
     return JSValue::encode(asObject(target)->getPrototype(vm, exec));
 }
@@ -230,7 +217,7 @@ EncodedJSValue JSC_HOST_CALL reflectObjectIsExtensible(ExecState* exec)
 
     JSValue target = exec->argument(0);
     if (!target.isObject())
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.isExtensible requires the first argument be an object")));
+        return JSValue::encode(throwTypeError(exec, scope, "Reflect.isExtensible requires the first argument be an object"_s));
 
     bool isExtensible = asObject(target)->isExtensible(exec);
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
@@ -245,7 +232,7 @@ EncodedJSValue JSC_HOST_CALL reflectObjectOwnKeys(ExecState* exec)
 
     JSValue target = exec->argument(0);
     if (!target.isObject())
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.ownKeys requires the first argument be an object")));
+        return JSValue::encode(throwTypeError(exec, scope, "Reflect.ownKeys requires the first argument be an object"_s));
     scope.release();
     return JSValue::encode(ownPropertyKeys(exec, jsCast<JSObject*>(target), PropertyNameMode::StringsAndSymbols, DontEnumPropertiesMode::Include));
 }
@@ -258,7 +245,7 @@ EncodedJSValue JSC_HOST_CALL reflectObjectPreventExtensions(ExecState* exec)
 
     JSValue target = exec->argument(0);
     if (!target.isObject())
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.preventExtensions requires the first argument be an object")));
+        return JSValue::encode(throwTypeError(exec, scope, "Reflect.preventExtensions requires the first argument be an object"_s));
     JSObject* object = asObject(target);
     bool result = object->methodTable(vm)->preventExtensions(object, exec);
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
@@ -273,7 +260,7 @@ EncodedJSValue JSC_HOST_CALL reflectObjectSet(ExecState* exec)
 
     JSValue target = exec->argument(0);
     if (!target.isObject())
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.set requires the first argument be an object")));
+        return JSValue::encode(throwTypeError(exec, scope, "Reflect.set requires the first argument be an object"_s));
     JSObject* targetObject = asObject(target);
 
     auto propertyName = exec->argument(1).toPropertyKey(exec);
@@ -298,10 +285,10 @@ EncodedJSValue JSC_HOST_CALL reflectObjectSetPrototypeOf(ExecState* exec)
 
     JSValue target = exec->argument(0);
     if (!target.isObject())
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.setPrototypeOf requires the first argument be an object")));
+        return JSValue::encode(throwTypeError(exec, scope, "Reflect.setPrototypeOf requires the first argument be an object"_s));
     JSValue proto = exec->argument(1);
     if (!proto.isObject() && !proto.isNull())
-        return JSValue::encode(throwTypeError(exec, scope, ASCIILiteral("Reflect.setPrototypeOf requires the second argument be either an object or null")));
+        return JSValue::encode(throwTypeError(exec, scope, "Reflect.setPrototypeOf requires the second argument be either an object or null"_s));
 
     JSObject* object = asObject(target);
 

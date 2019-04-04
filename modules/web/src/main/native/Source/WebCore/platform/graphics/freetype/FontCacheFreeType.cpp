@@ -33,6 +33,10 @@
 #include <wtf/Assertions.h>
 #include <wtf/text/CString.h>
 
+#if PLATFORM(GTK)
+#include "GtkUtilities.h"
+#endif
+
 namespace WebCore {
 
 void FontCache::platformInit()
@@ -42,52 +46,65 @@ void FontCache::platformInit()
         ASSERT_NOT_REACHED();
 }
 
-static RefPtr<FcPattern> createFontConfigPatternForCharacters(const UChar* characters, int bufferLength)
+static int fontWeightToFontconfigWeight(FontSelectionValue weight)
 {
-    RefPtr<FcPattern> pattern = adoptRef(FcPatternCreate());
-    FcUniquePtr<FcCharSet> fontConfigCharSet(FcCharSetCreate());
+    if (weight < FontSelectionValue(150))
+        return FC_WEIGHT_THIN;
+    if (weight < FontSelectionValue(250))
+        return FC_WEIGHT_ULTRALIGHT;
+    if (weight < FontSelectionValue(350))
+        return FC_WEIGHT_LIGHT;
+    if (weight < FontSelectionValue(450))
+        return FC_WEIGHT_REGULAR;
+    if (weight < FontSelectionValue(550))
+        return FC_WEIGHT_MEDIUM;
+    if (weight < FontSelectionValue(650))
+        return FC_WEIGHT_SEMIBOLD;
+    if (weight < FontSelectionValue(750))
+        return FC_WEIGHT_BOLD;
+    if (weight < FontSelectionValue(850))
+        return FC_WEIGHT_EXTRABOLD;
+    return FC_WEIGHT_ULTRABLACK;
+}
 
-    UTF16UChar32Iterator iterator(characters, bufferLength);
+static bool configurePatternForFontDescription(FcPattern* pattern, const FontDescription& fontDescription)
+{
+    if (!FcPatternAddInteger(pattern, FC_SLANT, fontDescription.italic() ? FC_SLANT_ITALIC : FC_SLANT_ROMAN))
+        return false;
+    if (!FcPatternAddInteger(pattern, FC_WEIGHT, fontWeightToFontconfigWeight(fontDescription.weight())))
+        return false;
+    if (!FcPatternAddDouble(pattern, FC_PIXEL_SIZE, fontDescription.computedPixelSize()))
+        return false;
+    return true;
+}
+
+RefPtr<Font> FontCache::systemFallbackForCharacters(const FontDescription& description, const Font*, bool, const UChar* characters, unsigned length)
+{
+    FcUniquePtr<FcCharSet> fontConfigCharSet(FcCharSetCreate());
+    UTF16UChar32Iterator iterator(characters, length);
     UChar32 character = iterator.next();
     while (character != iterator.end()) {
         FcCharSetAddChar(fontConfigCharSet.get(), character);
         character = iterator.next();
     }
 
+    RefPtr<FcPattern> pattern = adoptRef(FcPatternCreate());
     FcPatternAddCharSet(pattern.get(), FC_CHARSET, fontConfigCharSet.get());
 
     FcPatternAddBool(pattern.get(), FC_SCALABLE, FcTrue);
+
+    if (!configurePatternForFontDescription(pattern.get(), description))
+        return nullptr;
+
     FcConfigSubstitute(nullptr, pattern.get(), FcMatchPattern);
     cairo_ft_font_options_substitute(getDefaultCairoFontOptions(), pattern.get());
     FcDefaultSubstitute(pattern.get());
-    return pattern;
-}
-
-static RefPtr<FcPattern> findBestFontGivenFallbacks(const FontPlatformData& fontData, FcPattern* pattern)
-{
-    FcFontSet* fallbacks = fontData.fallbacks();
-    if (!fallbacks)
-        return nullptr;
-
-    FcResult fontConfigResult;
-    return FcFontSetMatch(nullptr, &fallbacks, 1, pattern, &fontConfigResult);
-}
-
-RefPtr<Font> FontCache::systemFallbackForCharacters(const FontDescription& description, const Font* originalFontData, bool, const UChar* characters, unsigned length)
-{
-    RefPtr<FcPattern> pattern = createFontConfigPatternForCharacters(characters, length);
-    const FontPlatformData& fontData = originalFontData->platformData();
-
-    RefPtr<FcPattern> fallbackPattern = findBestFontGivenFallbacks(fontData, pattern.get());
-    if (fallbackPattern) {
-        FontPlatformData alternateFontData(fallbackPattern.get(), description);
-        return fontForPlatformData(alternateFontData);
-    }
 
     FcResult fontConfigResult;
     RefPtr<FcPattern> resultPattern = adoptRef(FcFontMatch(nullptr, pattern.get(), &fontConfigResult));
     if (!resultPattern)
         return nullptr;
+
     FontPlatformData alternateFontData(resultPattern.get(), description);
     return fontForPlatformData(alternateFontData);
 }
@@ -98,9 +115,7 @@ static Vector<String> patternToFamilies(FcPattern& pattern)
     String patternString = String::fromUTF8(patternChars);
     free(patternChars);
 
-    Vector<String> results;
-    patternString.split(',', results);
-    return results;
+    return patternString.split(',');
 }
 
 Vector<String> FontCache::systemFontFamilies()
@@ -123,11 +138,6 @@ Vector<String> FontCache::systemFontFamilies()
     return fontFamilies;
 }
 
-Ref<Font> FontCache::lastResortFallbackFontForEveryCharacter(const FontDescription& fontDescription)
-{
-    return lastResortFallbackFont(fontDescription);
-}
-
 Ref<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescription)
 {
     // We want to return a fallback font here, otherwise the logic preventing FontConfig
@@ -140,7 +150,7 @@ Ref<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescripti
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-Vector<FontTraitsMask> FontCache::getTraitsInFamily(const AtomicString&)
+Vector<FontSelectionCapabilities> FontCache::getFontSelectionCapabilitiesInFamily(const AtomicString&, AllowUserInstalledFonts)
 {
     return { };
 }
@@ -162,34 +172,13 @@ static String getFamilyNameStringFromFamily(const AtomicString& family)
         return "cursive";
     if (family == fantasyFamily)
         return "fantasy";
-    return "";
-}
 
-static int fontWeightToFontconfigWeight(FontWeight weight)
-{
-    switch (weight) {
-    case FontWeight100:
-        return FC_WEIGHT_THIN;
-    case FontWeight200:
-        return FC_WEIGHT_ULTRALIGHT;
-    case FontWeight300:
-        return FC_WEIGHT_LIGHT;
-    case FontWeight400:
-        return FC_WEIGHT_REGULAR;
-    case FontWeight500:
-        return FC_WEIGHT_MEDIUM;
-    case FontWeight600:
-        return FC_WEIGHT_SEMIBOLD;
-    case FontWeight700:
-        return FC_WEIGHT_BOLD;
-    case FontWeight800:
-        return FC_WEIGHT_EXTRABOLD;
-    case FontWeight900:
-        return FC_WEIGHT_ULTRABLACK;
-    default:
-        ASSERT_NOT_REACHED();
-        return FC_WEIGHT_REGULAR;
-    }
+#if PLATFORM(GTK)
+    if (family == systemUiFamily || family == "-webkit-system-font")
+        return defaultGtkSystemFont();
+#endif
+
+    return "";
 }
 
 // This is based on Chromium BSD code from Skia (src/ports/SkFontMgr_fontconfig.cpp). It is a
@@ -327,10 +316,14 @@ static inline bool isCommonlyUsedGenericFamily(const String& familyNameString)
         || equalLettersIgnoringASCIICase(familyNameString, "serif")
         || equalLettersIgnoringASCIICase(familyNameString, "monospace")
         || equalLettersIgnoringASCIICase(familyNameString, "fantasy")
+#if PLATFORM(GTK)
+        || equalLettersIgnoringASCIICase(familyNameString, "-webkit-system-font")
+        || equalLettersIgnoringASCIICase(familyNameString, "-webkit-system-ui")
+#endif
         || equalLettersIgnoringASCIICase(familyNameString, "cursive");
 }
 
-std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomicString& family, const FontFeatureSettings*, const FontVariantSettings*)
+std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomicString& family, const FontFeatureSettings*, const FontVariantSettings*, FontSelectionSpecifiedCapabilities)
 {
     // The CSS font matching algorithm (http://www.w3.org/TR/css3-fonts/#font-matching-algorithm)
     // says that we must find an exact match for font family, slant (italic or oblique can be used)
@@ -342,12 +335,7 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
     if (!FcPatternAddString(pattern.get(), FC_FAMILY, reinterpret_cast<const FcChar8*>(familyNameString.utf8().data())))
         return nullptr;
 
-    bool italic = fontDescription.italic();
-    if (!FcPatternAddInteger(pattern.get(), FC_SLANT, italic ? FC_SLANT_ITALIC : FC_SLANT_ROMAN))
-        return nullptr;
-    if (!FcPatternAddInteger(pattern.get(), FC_WEIGHT, fontWeightToFontconfigWeight(fontDescription.weight())))
-        return nullptr;
-    if (!FcPatternAddDouble(pattern.get(), FC_PIXEL_SIZE, fontDescription.computedPixelSize()))
+    if (!configurePatternForFontDescription(pattern.get(), fontDescription))
         return nullptr;
 
     // The strategy is originally from Skia (src/ports/SkFontHost_fontconfig.cpp):
@@ -375,15 +363,22 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
     if (!resultPattern) // No match.
         return nullptr;
 
+    // Loop through each font family of the result to see if it fits the one we requested.
+    bool matchedFontFamily = false;
     FcChar8* fontConfigFamilyNameAfterMatching;
-    FcPatternGetString(resultPattern.get(), FC_FAMILY, 0, &fontConfigFamilyNameAfterMatching);
-    String familyNameAfterMatching = String::fromUTF8(reinterpret_cast<char*>(fontConfigFamilyNameAfterMatching));
+    for (int i = 0; FcPatternGetString(resultPattern.get(), FC_FAMILY, i, &fontConfigFamilyNameAfterMatching) == FcResultMatch; ++i) {
+        // If Fontconfig gave us a different font family than the one we requested, we should ignore it
+        // and allow WebCore to give us the next font on the CSS fallback list. The exceptions are if
+        // this family name is a commonly-used generic family, or if the families are strongly-aliased.
+        // Checking for a strong alias comes last, since it is slow.
+        String familyNameAfterMatching = String::fromUTF8(reinterpret_cast<char*>(fontConfigFamilyNameAfterMatching));
+        if (equalIgnoringASCIICase(familyNameAfterConfiguration, familyNameAfterMatching) || isCommonlyUsedGenericFamily(familyNameString) || areStronglyAliased(familyNameAfterConfiguration, familyNameAfterMatching)) {
+            matchedFontFamily = true;
+            break;
+        }
+    }
 
-    // If Fontconfig gave us a different font family than the one we requested, we should ignore it
-    // and allow WebCore to give us the next font on the CSS fallback list. The exceptions are if
-    // this family name is a commonly-used generic family, or if the families are strongly-aliased.
-    // Checking for a strong alias comes last, since it is slow.
-    if (!equalIgnoringASCIICase(familyNameAfterConfiguration, familyNameAfterMatching) && !isCommonlyUsedGenericFamily(familyNameString) && !areStronglyAliased(familyNameAfterConfiguration, familyNameAfterMatching))
+    if (!matchedFontFamily)
         return nullptr;
 
     // Verify that this font has an encoding compatible with Fontconfig. Fontconfig currently
@@ -398,7 +393,7 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
 
 const AtomicString& FontCache::platformAlternateFamilyName(const AtomicString&)
 {
-    return nullAtom;
+    return nullAtom();
 }
 
 }

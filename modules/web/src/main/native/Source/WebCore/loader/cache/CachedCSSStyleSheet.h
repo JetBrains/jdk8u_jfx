@@ -26,6 +26,7 @@
 
 namespace WebCore {
 
+class FrameLoader;
 class StyleSheetContents;
 class TextResourceDecoder;
 
@@ -33,17 +34,20 @@ struct CSSParserContext;
 
 class CachedCSSStyleSheet final : public CachedResource {
 public:
-    CachedCSSStyleSheet(CachedResourceRequest&&, SessionID);
+    CachedCSSStyleSheet(CachedResourceRequest&&, PAL::SessionID);
     virtual ~CachedCSSStyleSheet();
 
-    enum class MIMETypeCheck { Strict, Lax };
-    const String sheetText(MIMETypeCheck = MIMETypeCheck::Strict, bool* hasValidMIMEType = nullptr) const;
+    enum class MIMETypeCheckHint { Strict, Lax };
+    const String sheetText(MIMETypeCheckHint = MIMETypeCheckHint::Strict, bool* hasValidMIMEType = nullptr) const;
 
-    RefPtr<StyleSheetContents> restoreParsedStyleSheet(const CSSParserContext&, CachePolicy);
+    RefPtr<StyleSheetContents> restoreParsedStyleSheet(const CSSParserContext&, CachePolicy, FrameLoader&);
     void saveParsedStyleSheet(Ref<StyleSheetContents>&&);
 
+    bool mimeTypeAllowedByNosniff() const;
+
 private:
-    bool canUseSheet(MIMETypeCheck, bool* hasValidMIMEType) const;
+    String responseMIMEType() const;
+    bool canUseSheet(MIMETypeCheckHint, bool* hasValidMIMEType) const;
     bool mayTryReplaceEncodedData() const final { return true; }
 
     void didAddClient(CachedResourceClient&) final;
@@ -67,4 +71,4 @@ protected:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_CACHED_RESOURCE(CachedCSSStyleSheet, CachedResource::CSSStyleSheet)
+SPECIALIZE_TYPE_TRAITS_CACHED_RESOURCE(CachedCSSStyleSheet, CachedResource::Type::CSSStyleSheet)

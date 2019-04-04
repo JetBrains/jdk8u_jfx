@@ -27,7 +27,6 @@
 
 #include "AbstractModuleRecord.h"
 #include "JSDestructibleObject.h"
-#include "ScopeOffset.h"
 
 namespace JSC {
 
@@ -38,16 +37,18 @@ public:
 
     static JSModuleNamespaceObject* create(ExecState* exec, JSGlobalObject* globalObject, Structure* structure, AbstractModuleRecord* moduleRecord, Vector<std::pair<Identifier, AbstractModuleRecord::Resolution>>&& resolutions)
     {
+        VM& vm = exec->vm();
         JSModuleNamespaceObject* object =
             new (
                 NotNull,
-                allocateCell<JSModuleNamespaceObject>(exec->vm().heap, JSModuleNamespaceObject::allocationSize(resolutions.size())))
-            JSModuleNamespaceObject(exec->vm(), structure);
+                allocateCell<JSModuleNamespaceObject>(vm.heap, JSModuleNamespaceObject::allocationSize(resolutions.size())))
+            JSModuleNamespaceObject(vm, structure);
         object->finishCreation(exec, globalObject, moduleRecord, WTFMove(resolutions));
         return object;
     }
 
     JS_EXPORT_PRIVATE static bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&);
+    JS_EXPORT_PRIVATE static bool getOwnPropertySlotByIndex(JSObject*, ExecState*, unsigned propertyName, PropertySlot&);
     JS_EXPORT_PRIVATE static bool put(JSCell*, ExecState*, PropertyName, JSValue, PutPropertySlot&);
     JS_EXPORT_PRIVATE static bool putByIndex(JSCell*, ExecState*, unsigned propertyName, JSValue, bool shouldThrow);
     JS_EXPORT_PRIVATE static bool deleteProperty(JSCell*, ExecState*, PropertyName);
@@ -70,6 +71,7 @@ protected:
 private:
     static void destroy(JSCell*);
     static void visitChildren(JSCell*, SlotVisitor&);
+    bool getOwnPropertySlotCommon(ExecState*, PropertyName, PropertySlot&);
 
     WriteBarrierBase<AbstractModuleRecord>& moduleRecordAt(unsigned offset)
     {
@@ -86,9 +88,9 @@ private:
         return WTF::roundUpToMultipleOf<sizeof(WriteBarrier<AbstractModuleRecord>)>(sizeof(JSModuleNamespaceObject));
     }
 
-    static size_t allocationSize(unsigned moduleRecords)
+    static size_t allocationSize(Checked<size_t> moduleRecords)
     {
-        return offsetOfModuleRecords() + moduleRecords * sizeof(WriteBarrier<AbstractModuleRecord>);
+        return (offsetOfModuleRecords() + moduleRecords * sizeof(WriteBarrier<AbstractModuleRecord>)).unsafeGet();
     }
 
     struct ExportEntry {
@@ -102,12 +104,5 @@ private:
     Vector<Identifier> m_names;
     WriteBarrier<AbstractModuleRecord> m_moduleRecord;
 };
-
-inline bool isJSModuleNamespaceObject(JSCell* cell)
-{
-    return cell->classInfo(*cell->vm()) == JSModuleNamespaceObject::info();
-}
-
-inline bool isJSModuleNamespaceObject(JSValue v) { return v.isCell() && isJSModuleNamespaceObject(v.asCell()); }
 
 } // namespace JSC

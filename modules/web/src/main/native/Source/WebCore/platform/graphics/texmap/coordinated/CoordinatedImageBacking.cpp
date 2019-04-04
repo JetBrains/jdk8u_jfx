@@ -24,159 +24,104 @@
  */
 
 #include "config.h"
+#include "CoordinatedImageBacking.h"
 
 #if USE(COORDINATED_GRAPHICS)
-#include "CoordinatedImageBacking.h"
 
 #include "CoordinatedGraphicsState.h"
 #include "GraphicsContext.h"
+#include "NicosiaBuffer.h"
+#include "NicosiaPaintingContext.h"
 
 namespace WebCore {
 
-class ImageBackingSurfaceClient : public CoordinatedSurface::Client {
-public:
-    ImageBackingSurfaceClient(Image& image, const IntRect& rect)
-        : m_image(image)
-        , m_rect(rect)
-    {
-    }
-
-    void paintToSurfaceContext(GraphicsContext& context) override
-    {
-        context.drawImage(m_image, m_rect, m_rect);
-    }
-
-private:
-    Image& m_image;
-    IntRect m_rect;
-};
-
-CoordinatedImageBackingID CoordinatedImageBacking::getCoordinatedImageBackingID(Image* image)
+CoordinatedImageBackingID CoordinatedImageBacking::getCoordinatedImageBackingID(Image& image)
 {
     // CoordinatedImageBacking keeps a RefPtr<Image> member, so the same Image pointer can not refer two different instances until CoordinatedImageBacking releases the member.
-    return reinterpret_cast<CoordinatedImageBackingID>(image);
+    return reinterpret_cast<CoordinatedImageBackingID>(&image);
 }
 
-PassRefPtr<CoordinatedImageBacking> CoordinatedImageBacking::create(Client* client, PassRefPtr<Image> image)
-{
-    return adoptRef(new CoordinatedImageBacking(client, image));
-}
-
-CoordinatedImageBacking::CoordinatedImageBacking(Client* client, PassRefPtr<Image> image)
+CoordinatedImageBacking::CoordinatedImageBacking(Client& client, Ref<Image>&& image)
     : m_client(client)
-    , m_image(image)
-    , m_id(getCoordinatedImageBackingID(m_image.get()))
+    , m_id(getCoordinatedImageBackingID(image))
+    , m_image(WTFMove(image))
     , m_clearContentsTimer(*this, &CoordinatedImageBacking::clearContentsTimerFired)
-    , m_isDirty(false)
-    , m_isVisible(false)
 {
-    // FIXME: We would need to decode a small image directly into a GraphicsSurface.
-    // http://webkit.org/b/101426
-
-    m_client->createImageBacking(id());
+    m_client.createImageBacking(m_id);
 }
 
-CoordinatedImageBacking::~CoordinatedImageBacking()
+CoordinatedImageBacking::~CoordinatedImageBacking() = default;
+
+void CoordinatedImageBacking::addHost(Host& host)
 {
+    ASSERT(!m_hosts.contains(&host));
+    m_hosts.add(&host);
 }
 
-void CoordinatedImageBacking::addHost(Host* host)
+void CoordinatedImageBacking::removeHost(Host& host)
 {
-    ASSERT(!m_hosts.contains(host));
-    m_hosts.append(host);
-}
-
-void CoordinatedImageBacking::removeHost(Host* host)
-{
-    size_t position = m_hosts.find(host);
-    ASSERT(position != notFound);
-    m_hosts.remove(position);
+    m_hosts.remove(&host);
 
     if (m_hosts.isEmpty())
-        m_client->removeImageBacking(id());
+        m_client.removeImageBacking(m_id);
 }
 
-void CoordinatedImageBacking::markDirty()
-{
-    m_isDirty = true;
-}
+static const Seconds clearContentsTimerInterval { 3_s };
 
 void CoordinatedImageBacking::update()
 {
-    releaseSurfaceIfNeeded();
+    bool previousIsVisible = m_isVisible;
+    m_isVisible = std::any_of(m_hosts.begin(), m_hosts.end(),
+        [](auto* host)
+        {
+            return host->imageBackingVisible();
+        });
 
-    bool changedToVisible;
-    updateVisibilityIfNeeded(changedToVisible);
-    if (!m_isVisible)
+    if (!m_isVisible) {
+        if (previousIsVisible) {
+            ASSERT(!m_clearContentsTimer.isActive());
+            m_clearContentsTimer.startOneShot(clearContentsTimerInterval);
+        }
         return;
+    }
 
+    bool changedToVisible = !previousIsVisible;
+    if (m_clearContentsTimer.isActive()) {
+        m_clearContentsTimer.stop();
+        // We don't want to update the texture if we didn't remove the texture.
+        changedToVisible = false;
+    }
+
+    auto nativeImagePtr = m_image->nativeImageForCurrentFrame();
     if (!changedToVisible) {
         if (!m_isDirty)
             return;
 
-        if (m_nativeImagePtr == m_image->nativeImageForCurrentFrame()) {
+        if (m_nativeImagePtr == nativeImagePtr) {
             m_isDirty = false;
             return;
         }
     }
 
-    m_surface = CoordinatedSurface::create(IntSize(m_image->size()), !m_image->currentFrameKnownToBeOpaque() ? CoordinatedSurface::SupportsAlpha : CoordinatedSurface::NoFlags);
-    if (!m_surface) {
-        m_isDirty = false;
-        return;
-    }
+    m_nativeImagePtr = WTFMove(nativeImagePtr);
 
-    IntRect rect(IntPoint::zero(), IntSize(m_image->size()));
+    auto buffer = Nicosia::Buffer::create(IntSize(m_image->size()), !m_image->currentFrameKnownToBeOpaque() ? Nicosia::Buffer::SupportsAlpha : Nicosia::Buffer::NoFlags);
+    Nicosia::PaintingContext::paint(buffer,
+        [this](GraphicsContext& context)
+        {
+            IntRect rect { { }, IntSize { m_image->size() } };
+            context.drawImage(m_image, rect, rect, ImagePaintingOptions(CompositeCopy));
+        });
 
-    ImageBackingSurfaceClient surfaceClient(*m_image, rect);
-    m_surface->paintToSurface(rect, surfaceClient);
-
-    m_nativeImagePtr = m_image->nativeImageForCurrentFrame();
-
-    m_client->updateImageBacking(id(), m_surface.copyRef());
+    m_client.updateImageBacking(m_id, WTFMove(buffer));
     m_isDirty = false;
-}
-
-void CoordinatedImageBacking::releaseSurfaceIfNeeded()
-{
-    // We must keep m_surface until UI Process reads m_surface.
-    // If m_surface exists, it was created in the previous update.
-    m_surface = nullptr;
-}
-
-static const double clearContentsTimerInterval = 3;
-
-void CoordinatedImageBacking::updateVisibilityIfNeeded(bool& changedToVisible)
-{
-    bool previousIsVisible = m_isVisible;
-
-    m_isVisible = false;
-    for (auto& host : m_hosts) {
-        if (host->imageBackingVisible()) {
-            m_isVisible = true;
-            break;
-        }
-    }
-
-    bool changedToInvisible = previousIsVisible && !m_isVisible;
-    if (changedToInvisible) {
-        ASSERT(!m_clearContentsTimer.isActive());
-        m_clearContentsTimer.startOneShot(clearContentsTimerInterval);
-    }
-
-    changedToVisible = !previousIsVisible && m_isVisible;
-
-    if (m_isVisible && m_clearContentsTimer.isActive()) {
-        m_clearContentsTimer.stop();
-        // We don't want to update the texture if we didn't remove the texture.
-        changedToVisible = false;
-    }
 }
 
 void CoordinatedImageBacking::clearContentsTimerFired()
 {
-    m_client->clearImageBackingContents(id());
+    m_client.clearImageBackingContents(m_id);
 }
 
 } // namespace WebCore
+
 #endif

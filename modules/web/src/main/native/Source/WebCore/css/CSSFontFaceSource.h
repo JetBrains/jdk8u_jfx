@@ -27,7 +27,7 @@
 
 #include "CachedFontClient.h"
 #include "CachedResourceHandle.h"
-#include <runtime/ArrayBufferView.h>
+#include <JavaScriptCore/ArrayBufferView.h>
 #include <wtf/text/AtomicString.h>
 
 namespace WebCore {
@@ -37,6 +37,7 @@ class CSSFontSelector;
 class Font;
 struct FontCustomPlatformData;
 class FontDescription;
+struct FontSelectionSpecifiedCapabilities;
 struct FontVariantSettings;
 class SVGFontFaceElement;
 class SharedBuffer;
@@ -65,14 +66,20 @@ public:
 
     const AtomicString& familyNameOrURI() const { return m_familyNameOrURI; }
 
-    void load(CSSFontSelector&);
-    RefPtr<Font> font(const FontDescription&, bool syntheticBold, bool syntheticItalic, const FontFeatureSettings&, const FontVariantSettings&);
+    void opportunisticallyStartFontDataURLLoading(CSSFontSelector&);
+
+    void load(CSSFontSelector*);
+    RefPtr<Font> font(const FontDescription&, bool syntheticBold, bool syntheticItalic, const FontFeatureSettings&, const FontVariantSettings&, FontSelectionSpecifiedCapabilities);
+
+    bool requiresExternalResource() const { return m_font; }
 
 #if ENABLE(SVG_FONTS)
     bool isSVGFontFaceSource() const;
 #endif
 
 private:
+    bool shouldIgnoreFontLoadCompletions() const;
+
     void fontLoaded(CachedFont&) override;
 
     void setStatus(Status);

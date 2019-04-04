@@ -33,17 +33,17 @@
 #include "RenderText.h"
 #include "RenderTheme.h"
 #include "ShadowRoot.h"
+#include "StringTruncator.h"
 #include "TextRun.h"
 #include "VisiblePosition.h"
 #include <math.h>
-
-#if PLATFORM(IOS)
-#include "StringTruncator.h"
-#endif
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 
 using namespace HTMLNames;
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderFileUploadControl);
 
 const int afterButtonSpacing = 4;
 #if !PLATFORM(IOS)
@@ -64,9 +64,7 @@ RenderFileUploadControl::RenderFileUploadControl(HTMLInputElement& input, Render
 {
 }
 
-RenderFileUploadControl::~RenderFileUploadControl()
-{
-}
+RenderFileUploadControl::~RenderFileUploadControl() = default;
 
 HTMLInputElement& RenderFileUploadControl::inputElement() const
 {
@@ -116,12 +114,12 @@ int RenderFileUploadControl::maxFilenameWidth() const
 
 void RenderFileUploadControl::paintObject(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
-    if (style().visibility() != VISIBLE)
+    if (style().visibility() != Visibility::Visible)
         return;
 
     // Push a clip.
     GraphicsContextStateSaver stateSaver(paintInfo.context(), false);
-    if (paintInfo.phase == PaintPhaseForeground || paintInfo.phase == PaintPhaseChildBlockBackgrounds) {
+    if (paintInfo.phase == PaintPhase::Foreground || paintInfo.phase == PaintPhase::ChildBlockBackgrounds) {
         IntRect clipRect = enclosingIntRect(LayoutRect(paintOffset.x() + borderLeft(), paintOffset.y() + borderTop(),
                          width() - borderLeft() - borderRight(), height() - borderBottom() - borderTop() + buttonShadowHeight));
         if (clipRect.isEmpty())
@@ -130,7 +128,7 @@ void RenderFileUploadControl::paintObject(PaintInfo& paintInfo, const LayoutPoin
         paintInfo.context().clip(clipRect);
     }
 
-    if (paintInfo.phase == PaintPhaseForeground) {
+    if (paintInfo.phase == PaintPhase::Foreground) {
         const String& displayedFilename = fileTextValue();
         const FontCascade& font = style().fontCascade();
         TextRun textRun = constructTextRun(displayedFilename, style(), AllowTrailingExpansion, RespectDirection | RespectDirectionOverride);
@@ -162,7 +160,7 @@ void RenderFileUploadControl::paintObject(PaintInfo& paintInfo, const LayoutPoin
         else
             textY = baselinePosition(AlphabeticBaseline, true, HorizontalLine, PositionOnContainingLine);
 
-        paintInfo.context().setFillColor(style().visitedDependentColor(CSSPropertyColor));
+        paintInfo.context().setFillColor(style().visitedDependentColorWithColorFilter(CSSPropertyColor));
 
         // Draw the filename
         paintInfo.context().drawBidiText(font, textRun, IntPoint(roundToInt(textX), roundToInt(textY)));
@@ -244,7 +242,7 @@ void RenderFileUploadControl::computePreferredLogicalWidths()
     setPreferredLogicalWidthsDirty(false);
 }
 
-VisiblePosition RenderFileUploadControl::positionForPoint(const LayoutPoint&, const RenderRegion*)
+VisiblePosition RenderFileUploadControl::positionForPoint(const LayoutPoint&, const RenderFragmentContainer*)
 {
     return VisiblePosition();
 }
@@ -266,12 +264,11 @@ String RenderFileUploadControl::buttonValue()
 
 String RenderFileUploadControl::fileTextValue() const
 {
+    auto& input = inputElement();
     ASSERT(inputElement().files());
-#if PLATFORM(IOS)
-    if (inputElement().files()->length())
-        return StringTruncator::rightTruncate(inputElement().displayString(), maxFilenameWidth(), style().fontCascade());
-#endif
-    return theme().fileListNameForWidth(inputElement().files(), style().fontCascade(), maxFilenameWidth(), inputElement().multiple());
+    if (input.files()->length() && !input.displayString().isEmpty())
+        return StringTruncator::rightTruncate(input.displayString(), maxFilenameWidth(), style().fontCascade());
+    return theme().fileListNameForWidth(input.files(), style().fontCascade(), maxFilenameWidth(), input.multiple());
 }
 
 } // namespace WebCore

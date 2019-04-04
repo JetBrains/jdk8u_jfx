@@ -29,34 +29,44 @@
 #include "config.h"
 #include "PageConsoleClient.h"
 
+#include "CanvasRenderingContext2D.h"
 #include "Chrome.h"
 #include "ChromeClient.h"
 #include "Document.h"
 #include "Frame.h"
+#include "HTMLCanvasElement.h"
 #include "InspectorController.h"
 #include "InspectorInstrumentation.h"
-#include "JSMainThreadExecState.h"
-#include "MainFrame.h"
+#include "JSCanvasRenderingContext2D.h"
+#include "JSExecState.h"
+#include "JSHTMLCanvasElement.h"
+#include "JSOffscreenCanvas.h"
+#include "OffscreenCanvas.h"
 #include "Page.h"
 #include "ScriptableDocumentParser.h"
 #include "Settings.h"
-#include <inspector/ConsoleMessage.h>
-#include <inspector/ScriptArguments.h>
-#include <inspector/ScriptCallStack.h>
-#include <inspector/ScriptCallStackFactory.h>
+#include <JavaScriptCore/ConsoleMessage.h>
+#include <JavaScriptCore/JSCInlines.h>
+#include <JavaScriptCore/ScriptArguments.h>
+#include <JavaScriptCore/ScriptCallStack.h>
+#include <JavaScriptCore/ScriptCallStackFactory.h>
+#include <wtf/text/WTFString.h>
 
-using namespace Inspector;
+#if ENABLE(WEBGL)
+#include "JSWebGLRenderingContext.h"
+#include "WebGLRenderingContext.h"
+#endif
+
 
 namespace WebCore {
+using namespace Inspector;
 
 PageConsoleClient::PageConsoleClient(Page& page)
     : m_page(page)
 {
 }
 
-PageConsoleClient::~PageConsoleClient()
-{
-}
+PageConsoleClient::~PageConsoleClient() = default;
 
 static int muteCount = 0;
 static bool printExceptions = false;
@@ -105,6 +115,18 @@ static void getParserLocationForConsoleMessage(Document* document, String& url, 
     column = position.m_column.oneBasedInt();
 }
 
+void PageConsoleClient::addMessage(std::unique_ptr<Inspector::ConsoleMessage>&& consoleMessage)
+{
+    if (consoleMessage->source() != MessageSource::CSS && !m_page.usesEphemeralSession()) {
+        m_page.chrome().client().addMessageToConsole(consoleMessage->source(), consoleMessage->level(), consoleMessage->message(), consoleMessage->line(), consoleMessage->column(), consoleMessage->url());
+
+        if (m_page.settings().logsPageMessagesToSystemConsoleEnabled() || shouldPrintExceptions())
+            ConsoleClient::printConsoleMessage(MessageSource::ConsoleAPI, MessageType::Log, consoleMessage->level(), consoleMessage->message(), consoleMessage->url(), consoleMessage->line(), consoleMessage->column());
+    }
+
+    InspectorInstrumentation::addMessageToConsole(m_page, WTFMove(consoleMessage));
+}
+
 void PageConsoleClient::addMessage(MessageSource source, MessageLevel level, const String& message, unsigned long requestIdentifier, Document* document)
 {
     String url;
@@ -112,7 +134,7 @@ void PageConsoleClient::addMessage(MessageSource source, MessageLevel level, con
     unsigned column = 0;
     getParserLocationForConsoleMessage(document, url, line, column);
 
-    addMessage(source, level, message, url, line, column, 0, JSMainThreadExecState::currentState(), requestIdentifier);
+    addMessage(source, level, message, url, line, column, 0, JSExecState::currentState(), requestIdentifier);
 }
 
 void PageConsoleClient::addMessage(MessageSource source, MessageLevel level, const String& message, Ref<ScriptCallStack>&& callStack)
@@ -132,24 +154,7 @@ void PageConsoleClient::addMessage(MessageSource source, MessageLevel level, con
     else
         message = std::make_unique<Inspector::ConsoleMessage>(source, MessageType::Log, level, messageText, suggestedURL, suggestedLineNumber, suggestedColumnNumber, state, requestIdentifier);
 
-    String url = message->url();
-    unsigned lineNumber = message->line();
-    unsigned columnNumber = message->column();
-
-    InspectorInstrumentation::addMessageToConsole(m_page, WTFMove(message));
-
-    if (source == MessageSource::CSS)
-        return;
-
-    if (m_page.usesEphemeralSession())
-        return;
-
-    m_page.chrome().client().addMessageToConsole(source, level, messageText, lineNumber, columnNumber, url);
-
-    if (!m_page.settings().logsPageMessagesToSystemConsoleEnabled() && !shouldPrintExceptions())
-        return;
-
-    ConsoleClient::printConsoleMessage(MessageSource::ConsoleAPI, MessageType::Log, level, messageText, url, lineNumber, columnNumber);
+    addMessage(WTFMove(message));
 }
 
 
@@ -211,6 +216,42 @@ void PageConsoleClient::timeEnd(JSC::ExecState* exec, const String& title)
 void PageConsoleClient::timeStamp(JSC::ExecState*, Ref<ScriptArguments>&& arguments)
 {
     InspectorInstrumentation::consoleTimeStamp(m_page.mainFrame(), WTFMove(arguments));
+}
+
+static JSC::JSObject* objectArgumentAt(ScriptArguments& arguments, unsigned index)
+{
+    return arguments.argumentCount() > index ? arguments.argumentAt(index).getObject() : nullptr;
+}
+
+static CanvasRenderingContext* canvasRenderingContext(JSC::VM& vm, ScriptArguments& arguments)
+{
+    auto* target = objectArgumentAt(arguments, 0);
+    if (!target)
+        return nullptr;
+
+    if (auto* canvas = JSHTMLCanvasElement::toWrapped(vm, target))
+        return canvas->renderingContext();
+    if (auto* canvas = JSOffscreenCanvas::toWrapped(vm, target))
+        return canvas->renderingContext();
+    if (auto* context = JSCanvasRenderingContext2D::toWrapped(vm, target))
+        return context;
+#if ENABLE(WEBGL)
+    if (auto* context = JSWebGLRenderingContext::toWrapped(vm, target))
+        return context;
+#endif
+    return nullptr;
+}
+
+void PageConsoleClient::record(JSC::ExecState* state, Ref<ScriptArguments>&& arguments)
+{
+    if (auto* context = canvasRenderingContext(state->vm(), arguments))
+        InspectorInstrumentation::consoleStartRecordingCanvas(*context, *state, objectArgumentAt(arguments, 1));
+}
+
+void PageConsoleClient::recordEnd(JSC::ExecState* state, Ref<ScriptArguments>&& arguments)
+{
+    if (auto* context = canvasRenderingContext(state->vm(), arguments))
+        InspectorInstrumentation::didFinishRecordingCanvasFrame(*context, true);
 }
 
 } // namespace WebCore

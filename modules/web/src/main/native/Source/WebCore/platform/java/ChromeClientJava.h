@@ -1,6 +1,28 @@
 /*
- * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
+
 #pragma once
 
 #include "ChromeClient.h"
@@ -78,7 +100,6 @@ public:
     IntPoint screenToRootView(const IntPoint&) const override;
     IntRect rootViewToScreen(const IntRect&) const override;
     PlatformPageClient platformPageClient() const override;
-    void scrollbarsModeDidChange() const override;
     void setCursor(const Cursor&) override;
     void setCursorHiddenUntilMouseMoves(bool) override;
     // End methods used by HostWindow.
@@ -122,41 +143,30 @@ public:
     void enumerateChosenDirectory(FileChooser*) override;
 #endif
 
-#if USE(ACCELERATED_COMPOSITING)
-    // Allows ports to customize the type of graphics layers created by this page.
-    GraphicsLayerFactory* graphicsLayerFactory() const { return 0; }
+    GraphicsLayerFactory* graphicsLayerFactory() const override { return nullptr; }
 
     // Pass 0 as the GraphicsLayer to detatch the root layer.
-    void attachRootGraphicsLayer(Frame*, GraphicsLayer*) override;
+    void attachRootGraphicsLayer(Frame&, GraphicsLayer*) override;
     // Sets a flag to specify that the next time content is drawn to the window,
     // the changes appear on the screen in synchrony with updates to GraphicsLayers.
     void setNeedsOneShotDrawingSynchronization() override;
     // Sets a flag to specify that the view needs to be updated, so we need
     // to do an eager layout before the drawing.
     void scheduleCompositingLayerFlush() override;
-#else //XXX: implement?
-    void attachRootGraphicsLayer(Frame&, GraphicsLayer*) override {}
-    void setNeedsOneShotDrawingSynchronization() override {}
-    void scheduleCompositingLayerFlush() override {}
-#endif
     void attachViewOverlayGraphicsLayer(Frame&, GraphicsLayer*) override;
 
 #if ENABLE(TOUCH_EVENTS)
     void needTouchEvents(bool) override {};
 #endif
 
-#if !USE(REQUEST_ANIMATION_FRAME_TIMER)
-    void scheduleAnimation() override {}
-#endif
-
     bool selectItemWritingDirectionIsNatural() override;
     bool selectItemAlignmentFollowsMenuWritingDirection() override;
-    // Checks if there is an opened popup, called by RenderMenuList::showPopup().
-    bool hasOpenedPopup() const override { return false; }
     RefPtr<PopupMenu> createPopupMenu(PopupMenuClient&) const override;
     RefPtr<SearchPopupMenu> createSearchPopupMenu(PopupMenuClient&) const override;
 
     void wheelEventHandlersChanged(bool) override {};
+
+    RefPtr<Icon> createIconForFiles(const Vector<String>&) override;
 
     JLObject platformPage() { return m_webPage; } //utatodo:check usage
 

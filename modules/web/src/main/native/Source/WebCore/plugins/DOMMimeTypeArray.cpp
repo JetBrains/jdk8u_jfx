@@ -26,12 +26,6 @@
 #include "PluginData.h"
 #include <wtf/text/AtomicString.h>
 
-#if ENABLE(WEB_REPLAY)
-#include "Document.h"
-#include "WebReplayInputs.h"
-#include <replay/InputCursor.h>
-#endif
-
 namespace WebCore {
 
 DOMMimeTypeArray::DOMMimeTypeArray(Frame* frame)
@@ -39,9 +33,7 @@ DOMMimeTypeArray::DOMMimeTypeArray(Frame* frame)
 {
 }
 
-DOMMimeTypeArray::~DOMMimeTypeArray()
-{
-}
+DOMMimeTypeArray::~DOMMimeTypeArray() = default;
 
 unsigned DOMMimeTypeArray::length() const
 {
@@ -88,8 +80,20 @@ RefPtr<DOMMimeType> DOMMimeTypeArray::namedItem(const AtomicString& propertyName
 
 Vector<AtomicString> DOMMimeTypeArray::supportedPropertyNames()
 {
-    // FIXME: Should be implemented.
-    return Vector<AtomicString>();
+    PluginData* data = getPluginData();
+    if (!data)
+        return { };
+
+    Vector<MimeClassInfo> mimes;
+    Vector<size_t> mimePluginIndices;
+    data->getWebVisibleMimesAndPluginIndices(mimes, mimePluginIndices);
+
+    Vector<AtomicString> result;
+    result.reserveInitialCapacity(mimes.size());
+    for (auto& info : mimes)
+        result.uncheckedAppend(WTFMove(info.type));
+
+    return result;
 }
 
 PluginData* DOMMimeTypeArray::getPluginData() const
@@ -102,19 +106,6 @@ PluginData* DOMMimeTypeArray::getPluginData() const
         return nullptr;
 
     PluginData* pluginData = &page->pluginData();
-
-#if ENABLE(WEB_REPLAY)
-    if (!m_frame->document())
-        return pluginData;
-
-    InputCursor& cursor = m_frame->document()->inputCursor();
-    if (cursor.isCapturing())
-        cursor.appendInput<FetchPluginData>(pluginData);
-    else if (cursor.isReplaying()) {
-        if (FetchPluginData* input = cursor.fetchInput<FetchPluginData>())
-            pluginData = input->pluginData().get();
-    }
-#endif
 
     return pluginData;
 }

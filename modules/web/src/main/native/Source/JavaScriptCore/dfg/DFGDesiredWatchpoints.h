@@ -27,7 +27,6 @@
 
 #if ENABLE(DFG_JIT)
 
-#include "CodeOrigin.h"
 #include "DFGCommonData.h"
 #include "DFGDesiredInferredType.h"
 #include "InferredValue.h"
@@ -47,7 +46,10 @@ struct SetPointerAdaptor {
     {
         return set->add(common.watchpoints.add(codeBlock));
     }
-    static bool hasBeenInvalidated(T set) { return set->hasBeenInvalidated(); }
+    static bool hasBeenInvalidated(T set)
+    {
+        return set->hasBeenInvalidated();
+    }
     static void dumpInContext(PrintStream& out, T set, DumpContext*)
     {
         out.print(RawPointer(set));

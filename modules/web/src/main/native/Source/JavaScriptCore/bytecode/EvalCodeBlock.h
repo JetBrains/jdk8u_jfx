@@ -33,10 +33,16 @@
 
 namespace JSC {
 
-class EvalCodeBlock : public GlobalCodeBlock {
+class EvalCodeBlock final : public GlobalCodeBlock {
 public:
     typedef GlobalCodeBlock Base;
     DECLARE_INFO;
+
+    template<typename>
+    static IsoSubspace* subspaceFor(VM& vm)
+    {
+        return &vm.evalCodeBlockSpace.space;
+    }
 
     static EvalCodeBlock* create(VM* vm, CopyParsedBlockTag, EvalCodeBlock& other)
     {
@@ -51,17 +57,20 @@ public:
     {
         EvalCodeBlock* instance = new (NotNull, allocateCell<EvalCodeBlock>(vm->heap))
             EvalCodeBlock(vm, vm->evalCodeBlockStructure.get(), ownerExecutable, unlinkedCodeBlock, scope, WTFMove(sourceProvider));
-        instance->finishCreation(*vm, ownerExecutable, unlinkedCodeBlock, scope);
+        if (!instance->finishCreation(*vm, ownerExecutable, unlinkedCodeBlock, scope))
+            return nullptr;
         return instance;
     }
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
     {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(CellType, StructureFlags), info());
+        return Structure::create(vm, globalObject, prototype, TypeInfo(CodeBlockType, StructureFlags), info());
     }
 
     const Identifier& variable(unsigned index) { return unlinkedEvalCodeBlock()->variable(index); }
     unsigned numVariables() { return unlinkedEvalCodeBlock()->numVariables(); }
+    const Identifier& functionHoistingCandidate(unsigned index) { return unlinkedEvalCodeBlock()->functionHoistingCandidate(index); }
+    unsigned numFunctionHoistingCandidates() { return unlinkedEvalCodeBlock()->numFunctionHoistingCandidates(); }
 
 private:
     EvalCodeBlock(VM* vm, Structure* structure, CopyParsedBlockTag, EvalCodeBlock& other)

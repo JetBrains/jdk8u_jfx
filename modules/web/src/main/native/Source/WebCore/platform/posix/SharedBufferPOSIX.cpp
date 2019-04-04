@@ -40,7 +40,7 @@ RefPtr<SharedBuffer> SharedBuffer::createFromReadingFile(const String& filePath)
     if (filePath.isEmpty())
         return nullptr;
 
-    CString filename = fileSystemRepresentation(filePath);
+    CString filename = FileSystem::fileSystemRepresentation(filePath);
     int fd = open(filename.data(), O_RDONLY);
     if (fd == -1)
         return nullptr;
@@ -69,7 +69,7 @@ RefPtr<SharedBuffer> SharedBuffer::createFromReadingFile(const String& filePath)
     if (totalBytesRead != bytesToRead)
         return nullptr;
 
-    return SharedBuffer::adoptVector(buffer);
+    return SharedBuffer::create(WTFMove(buffer));
 }
 
 } // namespace WebCore

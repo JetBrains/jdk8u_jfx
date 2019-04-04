@@ -30,17 +30,17 @@
 namespace WebCore {
 
 class HTMLTableCellElement final : public HTMLTablePartElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLTableCellElement);
 public:
     static Ref<HTMLTableCellElement> create(const QualifiedName&, Document&);
 
     WEBCORE_EXPORT int cellIndex() const;
-    unsigned colSpan() const;
-    WEBCORE_EXPORT unsigned colSpanForBindings() const;
+    WEBCORE_EXPORT unsigned colSpan() const;
     unsigned rowSpan() const;
     WEBCORE_EXPORT unsigned rowSpanForBindings() const;
 
     void setCellIndex(int);
-    WEBCORE_EXPORT void setColSpanForBindings(unsigned);
+    WEBCORE_EXPORT void setColSpan(unsigned);
     WEBCORE_EXPORT void setRowSpanForBindings(unsigned);
 
     String abbr() const;

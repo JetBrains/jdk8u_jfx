@@ -45,7 +45,7 @@ struct EnumValueChecker<T, EnumValues<E, e, es...>> {
 
 template<typename T, typename E>
 struct EnumValueChecker<T, EnumValues<E>> {
-    static constexpr bool isValidEnum(T t)
+    static constexpr bool isValidEnum(T)
     {
         return false;
     }
@@ -57,6 +57,12 @@ constexpr auto isValidEnum(T t) -> std::enable_if_t<std::is_enum<E>::value, bool
     static_assert(sizeof(T) >= std::underlying_type_t<E>(), "Integral type must be at least the size of the underlying enum type");
 
     return EnumValueChecker<T, typename EnumTraits<E>::values>::isValidEnum(t);
+}
+
+template<typename E>
+constexpr auto enumToUnderlyingType(E e)
+{
+    return static_cast<std::underlying_type_t<E>>(e);
 }
 
 }

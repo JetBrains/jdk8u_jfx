@@ -52,7 +52,7 @@ public:
 
     typedef unsigned PaintFlags;
 
-    static std::unique_ptr<TextureMapper> create();
+    WEBCORE_EXPORT static std::unique_ptr<TextureMapper> create();
 
     explicit TextureMapper();
     virtual ~TextureMapper();
@@ -71,13 +71,15 @@ public:
 
     virtual void drawTexture(const BitmapTexture&, const FloatRect& target, const TransformationMatrix& modelViewMatrix = TransformationMatrix(), float opacity = 1.0f, unsigned exposedEdges = AllEdges) = 0;
     virtual void drawSolidColor(const FloatRect&, const TransformationMatrix&, const Color&) = 0;
+    virtual void clearColor(const Color&) = 0;
 
     // makes a surface the target for the following drawTexture calls.
     virtual void bindSurface(BitmapTexture* surface) = 0;
     virtual void beginClip(const TransformationMatrix&, const FloatRect&) = 0;
     virtual void endClip() = 0;
     virtual IntRect clipBounds() = 0;
-    virtual PassRefPtr<BitmapTexture> createTexture() = 0;
+    virtual Ref<BitmapTexture> createTexture() = 0;
+    virtual Ref<BitmapTexture> createTexture(int internalFormat) = 0;
 
     virtual void beginPainting(PaintFlags = 0) { }
     virtual void endPainting() { }
@@ -86,7 +88,7 @@ public:
 
     virtual IntSize maxTextureSize() const = 0;
 
-    virtual PassRefPtr<BitmapTexture> acquireTextureFromPool(const IntSize&, const BitmapTexture::Flags = BitmapTexture::SupportsAlpha);
+    virtual RefPtr<BitmapTexture> acquireTextureFromPool(const IntSize&, const BitmapTexture::Flags = BitmapTexture::SupportsAlpha);
 
     void setPatternTransform(const TransformationMatrix& p) { m_patternTransform = p; }
     void setWrapMode(WrapMode m) { m_wrapMode = m; }
@@ -99,7 +101,7 @@ protected:
     const TransformationMatrix& patternTransform() const { return m_patternTransform; }
 
 private:
-#if USE(TEXTURE_MAPPER_GL)
+#if USE(TEXTURE_MAPPER_GL) || PLATFORM(JAVA)
     static std::unique_ptr<TextureMapper> platformCreateAccelerated();
 #else
     static std::unique_ptr<TextureMapper> platformCreateAccelerated()

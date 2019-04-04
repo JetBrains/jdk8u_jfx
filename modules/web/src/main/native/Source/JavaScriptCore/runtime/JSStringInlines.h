@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,6 +34,24 @@ bool JSString::equal(ExecState* exec, JSString* other) const
     if (isRope() || other->isRope())
         return equalSlowCase(exec, other);
     return WTF::equal(*m_value.impl(), *other->m_value.impl());
+}
+
+template<typename StringType>
+inline JSValue jsMakeNontrivialString(ExecState* exec, StringType&& string)
+{
+    return jsNontrivialString(exec, std::forward<StringType>(string));
+}
+
+template<typename StringType, typename... StringTypes>
+inline JSValue jsMakeNontrivialString(ExecState* exec, StringType&& string, StringTypes&&... strings)
+{
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    String result = tryMakeString(std::forward<StringType>(string), std::forward<StringTypes>(strings)...);
+    if (UNLIKELY(!result))
+        return throwOutOfMemoryError(exec, scope);
+    ASSERT(result.length() <= JSString::MaxLength);
+    return jsNontrivialString(exec, WTFMove(result));
 }
 
 } // namespace JSC

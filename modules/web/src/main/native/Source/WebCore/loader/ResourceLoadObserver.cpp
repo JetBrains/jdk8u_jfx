@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,46 +26,68 @@
 #include "config.h"
 #include "ResourceLoadObserver.h"
 
+#include "DeprecatedGlobalSettings.h"
 #include "Document.h"
 #include "Frame.h"
+#include "FrameLoader.h"
+#include "HTMLFrameOwnerElement.h"
 #include "Logging.h"
-#include "MainFrame.h"
-#include "NetworkStorageSession.h"
 #include "Page.h"
-#include "PlatformStrategies.h"
-#include "PublicSuffix.h"
 #include "ResourceLoadStatistics.h"
-#include "ResourceLoadStatisticsStore.h"
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
 #include "SecurityOrigin.h"
 #include "Settings.h"
-#include "SharedBuffer.h"
 #include "URL.h"
-#include <wtf/CurrentTime.h>
-#include <wtf/NeverDestroyed.h>
-#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-// One day in seconds.
-static auto timestampResolution = 86400;
+template<typename T> static inline String primaryDomain(const T& value)
+{
+    return ResourceLoadStatistics::primaryDomain(value);
+}
 
-ResourceLoadObserver& ResourceLoadObserver::sharedObserver()
+static const Seconds minimumNotificationInterval { 5_s };
+
+ResourceLoadObserver& ResourceLoadObserver::shared()
 {
     static NeverDestroyed<ResourceLoadObserver> resourceLoadObserver;
     return resourceLoadObserver;
 }
 
-RefPtr<ResourceLoadStatisticsStore> ResourceLoadObserver::statisticsStore()
+static bool shouldEnableSiteSpecificQuirks(Page* page)
 {
-    ASSERT(m_store);
-    return m_store;
+#if PLATFORM(IOS)
+    UNUSED_PARAM(page);
+
+    // There is currently no way to toggle the needsSiteSpecificQuirks setting on iOS so we always enable
+    // the site-specific quirks on iOS.
+    return true;
+#else
+    return page && page->settings().needsSiteSpecificQuirks();
+#endif
 }
 
-void ResourceLoadObserver::setStatisticsStore(Ref<ResourceLoadStatisticsStore>&& store)
+static bool areDomainsAssociated(Page* page, const String& firstDomain, const String& secondDomain)
 {
-    m_store = WTFMove(store);
+    return ResourceLoadStatistics::areDomainsAssociated(shouldEnableSiteSpecificQuirks(page), firstDomain, secondDomain);
+}
+
+void ResourceLoadObserver::setNotificationCallback(WTF::Function<void (Vector<ResourceLoadStatistics>&&)>&& notificationCallback)
+{
+    ASSERT(!m_notificationCallback);
+    m_notificationCallback = WTFMove(notificationCallback);
+}
+
+void ResourceLoadObserver::setRequestStorageAccessUnderOpenerCallback(WTF::Function<void(const String& domainInNeedOfStorageAccess, uint64_t openerPageID, const String& openerDomain, bool isTriggeredByUserGesture)>&& callback)
+{
+    ASSERT(!m_requestStorageAccessUnderOpenerCallback);
+    m_requestStorageAccessUnderOpenerCallback = WTFMove(callback);
+}
+
+ResourceLoadObserver::ResourceLoadObserver()
+    : m_notificationTimer(*this, &ResourceLoadObserver::notifyObserver)
+{
 }
 
 static inline bool is3xxRedirect(const ResourceResponse& response)
@@ -73,109 +95,21 @@ static inline bool is3xxRedirect(const ResourceResponse& response)
     return response.httpStatusCode() >= 300 && response.httpStatusCode() <= 399;
 }
 
-bool ResourceLoadObserver::shouldLog(Page* page)
+bool ResourceLoadObserver::shouldLog(Page* page) const
 {
     // FIXME: Err on the safe side until we have sorted out what to do in worker contexts
     if (!page)
         return false;
-    return Settings::resourceLoadStatisticsEnabled()
-        && !page->usesEphemeralSession()
-        && m_store;
-}
 
-void ResourceLoadObserver::logFrameNavigation(const Frame& frame, const Frame& topFrame, const ResourceRequest& newRequest, const ResourceResponse& redirectResponse)
-{
-    ASSERT(frame.document());
-    ASSERT(topFrame.document());
-    ASSERT(topFrame.page());
-
-    if (!shouldLog(topFrame.page()))
-        return;
-
-    bool isRedirect = is3xxRedirect(redirectResponse);
-    bool isMainFrame = frame.isMainFrame();
-    const URL& sourceURL = frame.document()->url();
-    const URL& targetURL = newRequest.url();
-    const URL& mainFrameURL = topFrame.document()->url();
-
-    if (!targetURL.isValid() || !mainFrameURL.isValid())
-        return;
-
-    auto targetHost = targetURL.host();
-    auto mainFrameHost = mainFrameURL.host();
-
-    if (targetHost.isEmpty() || mainFrameHost.isEmpty() || targetHost == mainFrameHost || targetHost == sourceURL.host())
-        return;
-
-    auto targetPrimaryDomain = primaryDomain(targetURL);
-    auto mainFramePrimaryDomain = primaryDomain(mainFrameURL);
-    auto sourcePrimaryDomain = primaryDomain(sourceURL);
-
-    if (targetPrimaryDomain == mainFramePrimaryDomain || targetPrimaryDomain == sourcePrimaryDomain)
-        return;
-
-    auto targetOrigin = SecurityOrigin::create(targetURL);
-    auto targetStatistics = m_store->ensureResourceStatisticsForPrimaryDomain(targetPrimaryDomain);
-
-    // Always fire if we have previously removed data records for this domain
-    bool shouldFireDataModificationHandler = targetStatistics.dataRecordsRemoved > 0;
-
-    if (isMainFrame)
-        targetStatistics.topFrameHasBeenNavigatedToBefore = true;
-    else {
-        targetStatistics.subframeHasBeenLoadedBefore = true;
-
-        auto mainFrameOrigin = SecurityOrigin::create(mainFrameURL);
-        auto subframeUnderTopFrameOriginsResult = targetStatistics.subframeUnderTopFrameOrigins.add(mainFramePrimaryDomain);
-        if (subframeUnderTopFrameOriginsResult.isNewEntry)
-            shouldFireDataModificationHandler = true;
-    }
-
-    if (isRedirect) {
-        auto& redirectingOriginResourceStatistics = m_store->ensureResourceStatisticsForPrimaryDomain(sourcePrimaryDomain);
-
-        if (m_store->isPrevalentResource(targetPrimaryDomain))
-            redirectingOriginResourceStatistics.redirectedToOtherPrevalentResourceOrigins.add(targetPrimaryDomain);
-
-        if (isMainFrame) {
-            ++targetStatistics.topFrameHasBeenRedirectedTo;
-            ++redirectingOriginResourceStatistics.topFrameHasBeenRedirectedFrom;
-        } else {
-            ++targetStatistics.subframeHasBeenRedirectedTo;
-            ++redirectingOriginResourceStatistics.subframeHasBeenRedirectedFrom;
-            redirectingOriginResourceStatistics.subframeUniqueRedirectsTo.add(targetPrimaryDomain);
-
-            ++targetStatistics.subframeSubResourceCount;
-        }
-    } else {
-        if (sourcePrimaryDomain.isNull() || sourcePrimaryDomain.isEmpty() || sourcePrimaryDomain == "nullOrigin") {
-            if (isMainFrame)
-                ++targetStatistics.topFrameInitialLoadCount;
-            else
-                ++targetStatistics.subframeSubResourceCount;
-        } else {
-            auto& sourceOriginResourceStatistics = m_store->ensureResourceStatisticsForPrimaryDomain(sourcePrimaryDomain);
-
-            if (isMainFrame) {
-                ++sourceOriginResourceStatistics.topFrameHasBeenNavigatedFrom;
-                ++targetStatistics.topFrameHasBeenNavigatedTo;
-            } else {
-                ++sourceOriginResourceStatistics.subframeHasBeenNavigatedFrom;
-                ++targetStatistics.subframeHasBeenNavigatedTo;
-            }
-        }
-    }
-
-    m_store->setResourceStatisticsForPrimaryDomain(targetPrimaryDomain, WTFMove(targetStatistics));
-    if (shouldFireDataModificationHandler)
-        m_store->fireDataModificationHandler();
+    return DeprecatedGlobalSettings::resourceLoadStatisticsEnabled() && !page->usesEphemeralSession() && m_notificationCallback;
 }
 
 void ResourceLoadObserver::logSubresourceLoading(const Frame* frame, const ResourceRequest& newRequest, const ResourceResponse& redirectResponse)
 {
     ASSERT(frame->page());
 
-    if (!shouldLog(frame->page()))
+    auto* page = frame->page();
+    if (!shouldLog(page))
         return;
 
     bool isRedirect = is3xxRedirect(redirectResponse);
@@ -186,60 +120,36 @@ void ResourceLoadObserver::logSubresourceLoading(const Frame* frame, const Resou
     auto targetHost = targetURL.host();
     auto mainFrameHost = mainFrameURL.host();
 
-    if (targetHost.isEmpty()
-        || mainFrameHost.isEmpty()
-        || targetHost == mainFrameHost
-        || (isRedirect && targetHost == sourceURL.host()))
+    if (targetHost.isEmpty() || mainFrameHost.isEmpty() || targetHost == mainFrameHost || (isRedirect && targetHost == sourceURL.host()))
         return;
 
     auto targetPrimaryDomain = primaryDomain(targetURL);
     auto mainFramePrimaryDomain = primaryDomain(mainFrameURL);
     auto sourcePrimaryDomain = primaryDomain(sourceURL);
 
-    if (targetPrimaryDomain == mainFramePrimaryDomain || (isRedirect && targetPrimaryDomain == sourcePrimaryDomain))
+    if (areDomainsAssociated(page, targetPrimaryDomain, mainFramePrimaryDomain) || (isRedirect && areDomainsAssociated(page, targetPrimaryDomain, sourcePrimaryDomain)))
         return;
 
-    auto& targetStatistics = m_store->ensureResourceStatisticsForPrimaryDomain(targetPrimaryDomain);
-
-    // Always fire if we have previously removed data records for this domain
-    bool shouldFireDataModificationHandler = targetStatistics.dataRecordsRemoved > 0;
-
-    auto mainFrameOrigin = SecurityOrigin::create(mainFrameURL);
-    auto subresourceUnderTopFrameOriginsResult = targetStatistics.subresourceUnderTopFrameOrigins.add(mainFramePrimaryDomain);
-    if (subresourceUnderTopFrameOriginsResult.isNewEntry)
-        shouldFireDataModificationHandler = true;
-
-    if (isRedirect) {
-        auto& redirectingOriginStatistics = m_store->ensureResourceStatisticsForPrimaryDomain(sourcePrimaryDomain);
-
-        // We just inserted to the store, so we need to reget 'targetStatistics'
-        auto& updatedTargetStatistics = m_store->ensureResourceStatisticsForPrimaryDomain(targetPrimaryDomain);
-
-        if (m_store->isPrevalentResource(targetPrimaryDomain))
-            redirectingOriginStatistics.redirectedToOtherPrevalentResourceOrigins.add(targetPrimaryDomain);
-
-        ++redirectingOriginStatistics.subresourceHasBeenRedirectedFrom;
-        ++updatedTargetStatistics.subresourceHasBeenRedirectedTo;
-
-        auto subresourceUniqueRedirectsToResult = redirectingOriginStatistics.subresourceUniqueRedirectsTo.add(targetPrimaryDomain);
-        if (subresourceUniqueRedirectsToResult.isNewEntry)
-            shouldFireDataModificationHandler = true;
-
-        ++updatedTargetStatistics.subresourceHasBeenSubresourceCount;
-
-        auto totalVisited = std::max(m_originsVisitedMap.size(), 1U);
-
-        updatedTargetStatistics.subresourceHasBeenSubresourceCountDividedByTotalNumberOfOriginsVisited = static_cast<double>(updatedTargetStatistics.subresourceHasBeenSubresourceCount) / totalVisited;
-    } else {
-        ++targetStatistics.subresourceHasBeenSubresourceCount;
-
-        auto totalVisited = std::max(m_originsVisitedMap.size(), 1U);
-
-        targetStatistics.subresourceHasBeenSubresourceCountDividedByTotalNumberOfOriginsVisited = static_cast<double>(targetStatistics.subresourceHasBeenSubresourceCount) / totalVisited;
+    bool shouldCallNotificationCallback = false;
+    {
+        auto& targetStatistics = ensureResourceStatisticsForPrimaryDomain(targetPrimaryDomain);
+        targetStatistics.lastSeen = ResourceLoadStatistics::reduceTimeResolution(WallTime::now());
+        if (targetStatistics.subresourceUnderTopFrameOrigins.add(mainFramePrimaryDomain).isNewEntry)
+            shouldCallNotificationCallback = true;
     }
 
-    if (shouldFireDataModificationHandler)
-        m_store->fireDataModificationHandler();
+    if (isRedirect) {
+        auto& redirectingOriginStatistics = ensureResourceStatisticsForPrimaryDomain(sourcePrimaryDomain);
+        bool isNewRedirectToEntry = redirectingOriginStatistics.subresourceUniqueRedirectsTo.add(targetPrimaryDomain).isNewEntry;
+        auto& targetStatistics = ensureResourceStatisticsForPrimaryDomain(targetPrimaryDomain);
+        bool isNewRedirectFromEntry = targetStatistics.subresourceUniqueRedirectsFrom.add(sourcePrimaryDomain).isNewEntry;
+
+        if (isNewRedirectToEntry || isNewRedirectFromEntry)
+            shouldCallNotificationCallback = true;
+    }
+
+    if (shouldCallNotificationCallback)
+        scheduleNotificationIfNeeded();
 }
 
 void ResourceLoadObserver::logWebSocketLoading(const Frame* frame, const URL& targetURL)
@@ -249,167 +159,191 @@ void ResourceLoadObserver::logWebSocketLoading(const Frame* frame, const URL& ta
     if (!frame)
         return;
 
-    if (!shouldLog(frame->page()))
+    auto* page = frame->page();
+    if (!shouldLog(page))
         return;
 
-    const URL& mainFrameURL = frame->mainFrame().document()->url();
+    auto& mainFrameURL = frame->mainFrame().document()->url();
 
     auto targetHost = targetURL.host();
     auto mainFrameHost = mainFrameURL.host();
 
-    if (targetHost.isEmpty()
-        || mainFrameHost.isEmpty()
-        || targetHost == mainFrameHost)
+    if (targetHost.isEmpty() || mainFrameHost.isEmpty() || targetHost == mainFrameHost)
         return;
 
     auto targetPrimaryDomain = primaryDomain(targetURL);
     auto mainFramePrimaryDomain = primaryDomain(mainFrameURL);
 
-    if (targetPrimaryDomain == mainFramePrimaryDomain)
+    if (areDomainsAssociated(page, targetPrimaryDomain, mainFramePrimaryDomain))
         return;
 
-    auto& targetStatistics = m_store->ensureResourceStatisticsForPrimaryDomain(targetPrimaryDomain);
-
-    // Always fire if we have previously removed data records for this domain
-    bool shouldFireDataModificationHandler = targetStatistics.dataRecordsRemoved > 0;
-
-    auto mainFrameOrigin = SecurityOrigin::create(mainFrameURL);
-    auto subresourceUnderTopFrameOriginsResult = targetStatistics.subresourceUnderTopFrameOrigins.add(mainFramePrimaryDomain);
-    if (subresourceUnderTopFrameOriginsResult.isNewEntry)
-        shouldFireDataModificationHandler = true;
-
-    ++targetStatistics.subresourceHasBeenSubresourceCount;
-
-    auto totalVisited = std::max(m_originsVisitedMap.size(), 1U);
-
-    targetStatistics.subresourceHasBeenSubresourceCountDividedByTotalNumberOfOriginsVisited = static_cast<double>(targetStatistics.subresourceHasBeenSubresourceCount) / totalVisited;
-
-    if (shouldFireDataModificationHandler)
-        m_store->fireDataModificationHandler();
-}
-
-static double reduceTimeResolutionToOneDay(double seconds)
-{
-    return std::floor(seconds / timestampResolution) * timestampResolution;
+    auto& targetStatistics = ensureResourceStatisticsForPrimaryDomain(targetPrimaryDomain);
+    targetStatistics.lastSeen = ResourceLoadStatistics::reduceTimeResolution(WallTime::now());
+    if (targetStatistics.subresourceUnderTopFrameOrigins.add(mainFramePrimaryDomain).isNewEntry)
+        scheduleNotificationIfNeeded();
 }
 
 void ResourceLoadObserver::logUserInteractionWithReducedTimeResolution(const Document& document)
 {
-    ASSERT(document.page());
-
     if (!shouldLog(document.page()))
         return;
+
+    ASSERT(document.page());
 
     auto& url = document.url();
     if (url.isBlankURL() || url.isEmpty())
         return;
 
-    auto& statistics = m_store->ensureResourceStatisticsForPrimaryDomain(primaryDomain(url));
-    double newTimestamp = reduceTimeResolutionToOneDay(WTF::currentTime());
-    if (newTimestamp == statistics.mostRecentUserInteraction)
+    auto domain = primaryDomain(url);
+    auto newTime = ResourceLoadStatistics::reduceTimeResolution(WallTime::now());
+    auto lastReportedUserInteraction = m_lastReportedUserInteractionMap.get(domain);
+    if (newTime == lastReportedUserInteraction)
         return;
 
+    m_lastReportedUserInteractionMap.set(domain, newTime);
+
+    auto& statistics = ensureResourceStatisticsForPrimaryDomain(domain);
     statistics.hadUserInteraction = true;
-    statistics.mostRecentUserInteraction = newTimestamp;
-    m_store->fireDataModificationHandler();
-}
+    statistics.lastSeen = newTime;
+    statistics.mostRecentUserInteractionTime = newTime;
 
-void ResourceLoadObserver::logUserInteraction(const URL& url)
-{
-    if (url.isBlankURL() || url.isEmpty())
-        return;
-
-    auto& statistics = m_store->ensureResourceStatisticsForPrimaryDomain(primaryDomain(url));
-    statistics.hadUserInteraction = true;
-    statistics.mostRecentUserInteraction = WTF::currentTime();
-}
-
-void ResourceLoadObserver::clearUserInteraction(const URL& url)
-{
-    if (url.isBlankURL() || url.isEmpty())
-        return;
-
-    auto& statistics = m_store->ensureResourceStatisticsForPrimaryDomain(primaryDomain(url));
-
-    statistics.hadUserInteraction = false;
-    statistics.mostRecentUserInteraction = 0;
-}
-
-bool ResourceLoadObserver::hasHadUserInteraction(const URL& url)
-{
-    if (url.isBlankURL() || url.isEmpty())
-        return false;
-
-    auto& statistics = m_store->ensureResourceStatisticsForPrimaryDomain(primaryDomain(url));
-
-    return m_store->hasHadRecentUserInteraction(statistics);
-}
-
-void ResourceLoadObserver::setPrevalentResource(const URL& url)
-{
-    if (url.isBlankURL() || url.isEmpty())
-        return;
-
-    auto& statistics = m_store->ensureResourceStatisticsForPrimaryDomain(primaryDomain(url));
-
-    statistics.isPrevalentResource = true;
-}
-
-bool ResourceLoadObserver::isPrevalentResource(const URL& url)
-{
-    if (url.isBlankURL() || url.isEmpty())
-        return false;
-
-    auto& statistics = m_store->ensureResourceStatisticsForPrimaryDomain(primaryDomain(url));
-
-    return statistics.isPrevalentResource;
-}
-
-void ResourceLoadObserver::clearPrevalentResource(const URL& url)
-{
-    if (url.isBlankURL() || url.isEmpty())
-        return;
-
-    auto& statistics = m_store->ensureResourceStatisticsForPrimaryDomain(primaryDomain(url));
-
-    statistics.isPrevalentResource = false;
-}
-
-void ResourceLoadObserver::setTimeToLiveUserInteraction(double seconds)
-{
-    m_store->setTimeToLiveUserInteraction(seconds);
-}
-
-void ResourceLoadObserver::fireDataModificationHandler()
-{
-    m_store->fireDataModificationHandler();
-}
-
-String ResourceLoadObserver::primaryDomain(const URL& url)
-{
-    String primaryDomain;
-    String host = url.host();
-    if (host.isNull() || host.isEmpty())
-        primaryDomain = "nullOrigin";
-#if ENABLE(PUBLIC_SUFFIX_LIST)
-    else {
-        primaryDomain = topPrivatelyControlledDomain(host);
-        // We will have an empty string here if there is no TLD.
-        // Use the host in such case.
-        if (primaryDomain.isEmpty())
-            primaryDomain = host;
+#if HAVE(CFNETWORK_STORAGE_PARTITIONING)
+    if (auto* opener = document.frame()->loader().opener()) {
+        if (auto* openerDocument = opener->document()) {
+            if (auto* openerFrame = openerDocument->frame()) {
+                if (auto openerPageID = openerFrame->loader().client().pageID()) {
+                    requestStorageAccessUnderOpener(domain, openerPageID.value(), *openerDocument, true);
+                }
+            }
+        }
     }
-#else
-    else
-        primaryDomain = host;
 #endif
 
-    return primaryDomain;
+    m_notificationTimer.stop();
+    notifyObserver();
+
+#if HAVE(CFNETWORK_STORAGE_PARTITIONING) && !RELEASE_LOG_DISABLED
+    if (shouldLogUserInteraction()) {
+        auto counter = ++m_loggingCounter;
+#define LOCAL_LOG(str, ...) \
+        RELEASE_LOG(ResourceLoadStatistics, "ResourceLoadObserver::logUserInteraction: counter = %" PRIu64 ": " str, counter, ##__VA_ARGS__)
+
+        auto escapeForJSON = [](String s) {
+            s.replace('\\', "\\\\").replace('"', "\\\"");
+            return s;
+        };
+        auto escapedURL = escapeForJSON(url.string());
+        auto escapedDomain = escapeForJSON(domain);
+
+        LOCAL_LOG(R"({ "url": "%{public}s",)", escapedURL.utf8().data());
+        LOCAL_LOG(R"(  "domain" : "%{public}s",)", escapedDomain.utf8().data());
+        LOCAL_LOG(R"(  "until" : %f })", newTime.secondsSinceEpoch().seconds());
+
+#undef LOCAL_LOG
+    }
+#endif
+}
+
+void ResourceLoadObserver::logWindowCreation(const URL& popupUrl, uint64_t openerPageID, Document& openerDocument)
+{
+#if HAVE(CFNETWORK_STORAGE_PARTITIONING)
+    requestStorageAccessUnderOpener(primaryDomain(popupUrl), openerPageID, openerDocument, false);
+#else
+    UNUSED_PARAM(popupUrl);
+    UNUSED_PARAM(openerPageID);
+    UNUSED_PARAM(openerDocument);
+#endif
+}
+
+#if HAVE(CFNETWORK_STORAGE_PARTITIONING)
+void ResourceLoadObserver::requestStorageAccessUnderOpener(const String& domainInNeedOfStorageAccess, uint64_t openerPageID, Document& openerDocument, bool isTriggeredByUserGesture)
+{
+    auto openerUrl = openerDocument.url();
+    auto openerPrimaryDomain = primaryDomain(openerUrl);
+    if (domainInNeedOfStorageAccess != openerPrimaryDomain
+        && !openerDocument.hasRequestedPageSpecificStorageAccessWithUserInteraction(domainInNeedOfStorageAccess)
+        && !equalIgnoringASCIICase(openerUrl.string(), blankURL())) {
+        m_requestStorageAccessUnderOpenerCallback(domainInNeedOfStorageAccess, openerPageID, openerPrimaryDomain, isTriggeredByUserGesture);
+        // Remember user interaction-based requests since they don't need to be repeated.
+        if (isTriggeredByUserGesture)
+            openerDocument.setHasRequestedPageSpecificStorageAccessWithUserInteraction(domainInNeedOfStorageAccess);
+    }
+}
+#endif
+
+ResourceLoadStatistics& ResourceLoadObserver::ensureResourceStatisticsForPrimaryDomain(const String& primaryDomain)
+{
+    auto addResult = m_resourceStatisticsMap.ensure(primaryDomain, [&primaryDomain] {
+        return ResourceLoadStatistics(primaryDomain);
+    });
+    return addResult.iterator->value;
+}
+
+void ResourceLoadObserver::scheduleNotificationIfNeeded()
+{
+    ASSERT(m_notificationCallback);
+    if (m_resourceStatisticsMap.isEmpty()) {
+        m_notificationTimer.stop();
+        return;
+    }
+
+    if (!m_notificationTimer.isActive())
+        m_notificationTimer.startOneShot(minimumNotificationInterval);
+}
+
+void ResourceLoadObserver::notifyObserver()
+{
+    ASSERT(m_notificationCallback);
+    m_notificationTimer.stop();
+    m_notificationCallback(takeStatistics());
 }
 
 String ResourceLoadObserver::statisticsForOrigin(const String& origin)
 {
-    return m_store ? m_store->statisticsForOrigin(origin) : emptyString();
+    auto iter = m_resourceStatisticsMap.find(origin);
+    if (iter == m_resourceStatisticsMap.end())
+        return emptyString();
+
+    return "Statistics for " + origin + ":\n" + iter->value.toString();
 }
 
+Vector<ResourceLoadStatistics> ResourceLoadObserver::takeStatistics()
+{
+    Vector<ResourceLoadStatistics> statistics;
+    statistics.reserveInitialCapacity(m_resourceStatisticsMap.size());
+    for (auto& statistic : m_resourceStatisticsMap.values())
+        statistics.uncheckedAppend(WTFMove(statistic));
+
+    m_resourceStatisticsMap.clear();
+
+    return statistics;
 }
+
+void ResourceLoadObserver::clearState()
+{
+    m_notificationTimer.stop();
+    m_resourceStatisticsMap.clear();
+    m_lastReportedUserInteractionMap.clear();
+}
+
+URL ResourceLoadObserver::nonNullOwnerURL(const Document& document) const
+{
+    auto url = document.url();
+    auto* frame = document.frame();
+    auto host = document.url().host();
+
+    while ((host.isNull() || host.isEmpty()) && frame && !frame->isMainFrame()) {
+        auto* ownerElement = frame->ownerElement();
+
+        ASSERT(ownerElement != nullptr);
+
+        auto& doc = ownerElement->document();
+        frame = doc.frame();
+        url = doc.url();
+        host = url.host();
+    }
+
+    return url;
+}
+
+} // namespace WebCore

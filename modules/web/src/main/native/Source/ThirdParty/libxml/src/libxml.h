@@ -9,6 +9,8 @@
 #ifndef __XML_LIBXML_H__
 #define __XML_LIBXML_H__
 
+#include <libxml/xmlstring.h>
+
 #ifndef NO_LARGEFILE_SOURCE
 #ifndef _LARGEFILE_SOURCE
 #define _LARGEFILE_SOURCE
@@ -29,6 +31,11 @@
 #include <win32config.h>
 #include <libxml/xmlversion.h>
 #else
+/*
+ * Currently supported platforms use either autoconf or
+ * copy to config.h own "preset" configuration file.
+ * As result ifdef HAVE_CONFIG_H is omited here.
+ */
 #include "config.h"
 #include <libxml/xmlversion.h>
 #endif
@@ -53,6 +60,18 @@ int vfprintf(FILE *, const char *, va_list);
 #include "trio.h"
 #endif
 
+#if defined(__clang__) || \
+    (defined(__GNUC__) && (__GNUC__ * 100 + __GNUC_MINOR__ >= 406))
+#define XML_IGNORE_PEDANTIC_WARNINGS \
+    _Pragma("GCC diagnostic push") \
+    _Pragma("GCC diagnostic ignored \"-Wpedantic\"")
+#define XML_POP_WARNINGS \
+    _Pragma("GCC diagnostic pop")
+#else
+#define XML_IGNORE_PEDANTIC_WARNINGS
+#define XML_POP_WARNINGS
+#endif
+
 /*
  * Internal variable indicating if a callback has been registered for
  * node creation/destruction. It avoids spending a lot of time in locking
@@ -63,7 +82,7 @@ extern int __xmlRegisterCallbacks;
  * internal error reporting routines, shared but not partof the API.
  */
 void __xmlIOErr(int domain, int code, const char *extra);
-void __xmlLoaderErr(void *ctx, const char *msg, const char *filename);
+void __xmlLoaderErr(void *ctx, const char *msg, const char *filename) LIBXML_ATTR_FORMAT(2,0);
 #ifdef LIBXML_HTML_ENABLED
 /*
  * internal function of HTML parser needed for xmlParseInNodeContext
@@ -79,15 +98,30 @@ void __xmlGlobalInitMutexLock(void);
 void __xmlGlobalInitMutexUnlock(void);
 void __xmlGlobalInitMutexDestroy(void);
 
+int __xmlInitializeDict(void);
+
+#if defined(HAVE_RAND) && defined(HAVE_SRAND) && defined(HAVE_TIME)
+/*
+ * internal thread safe random function
+ */
+int __xmlRandom(void);
+#endif
+
+XMLPUBFUN xmlChar * XMLCALL xmlEscapeFormatString(xmlChar **msg);
+int xmlInputReadCallbackNop(void *context, char *buffer, int len);
+
 #ifdef IN_LIBXML
 #ifdef __GNUC__
 #ifdef PIC
-#ifdef linux
+#ifdef __linux__
 #if (__GNUC__ == 3 && __GNUC_MINOR__ >= 3) || (__GNUC__ > 3)
 #include "elfgcchack.h"
 #endif
 #endif
 #endif
 #endif
+#endif
+#if !defined(PIC) && !defined(NOLIBTOOL) && !defined(LIBXML_STATIC)
+#  define LIBXML_STATIC
 #endif
 #endif /* ! __XML_LIBXML_H__ */

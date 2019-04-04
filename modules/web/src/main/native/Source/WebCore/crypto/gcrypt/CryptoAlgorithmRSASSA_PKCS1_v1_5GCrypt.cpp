@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2014 Igalia S.L. All rights reserved.
  * Copyright (C) 2016 Yusuke Suzuki <utatane.tea@gmail.com>.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,35 +29,126 @@
 
 #if ENABLE(SUBTLE_CRYPTO)
 
-#include "CryptoAlgorithmRsaSsaParamsDeprecated.h"
 #include "CryptoKeyRSA.h"
-#include "ExceptionCode.h"
+#include "GCryptUtilities.h"
 #include "NotImplemented.h"
-#include <gcrypt.h>
-#include <wtf/CryptographicUtilities.h>
 
 namespace WebCore {
 
-void CryptoAlgorithmRSASSA_PKCS1_v1_5::platformSign(Ref<CryptoKey>&&, Vector<uint8_t>&&, VectorCallback&&, ExceptionCallback&&, ScriptExecutionContext&, WorkQueue&)
+static std::optional<Vector<uint8_t>> gcryptSign(gcry_sexp_t keySexp, const Vector<uint8_t>& data, CryptoAlgorithmIdentifier hashAlgorithmIdentifier, size_t keySizeInBytes)
 {
-    notImplemented();
+    // Perform digest operation with the specified algorithm on the given data.
+    Vector<uint8_t> dataHash;
+    {
+        auto digestAlgorithm = hashCryptoDigestAlgorithm(hashAlgorithmIdentifier);
+        if (!digestAlgorithm)
+            return std::nullopt;
+
+        auto digest = PAL::CryptoDigest::create(*digestAlgorithm);
+        if (!digest)
+            return std::nullopt;
+
+        digest->addBytes(data.data(), data.size());
+        dataHash = digest->computeHash();
+    }
+
+    // Construct the data s-expression that contains PKCS#1-padded hashed data.
+    PAL::GCrypt::Handle<gcry_sexp_t> dataSexp;
+    {
+        auto shaAlgorithm = hashAlgorithmName(hashAlgorithmIdentifier);
+        if (!shaAlgorithm)
+            return std::nullopt;
+
+        gcry_error_t error = gcry_sexp_build(&dataSexp, nullptr, "(data(flags pkcs1)(hash %s %b))",
+            *shaAlgorithm, dataHash.size(), dataHash.data());
+        if (error != GPG_ERR_NO_ERROR) {
+            PAL::GCrypt::logError(error);
+            return std::nullopt;
+        }
+    }
+
+    // Perform the PK signing, retrieving a sig-val s-expression of the following form:
+    // (sig-val
+    //   (rsa
+    //     (s s-mpi)))
+    PAL::GCrypt::Handle<gcry_sexp_t> signatureSexp;
+    gcry_error_t error = gcry_pk_sign(&signatureSexp, dataSexp, keySexp);
+    if (error != GPG_ERR_NO_ERROR) {
+        PAL::GCrypt::logError(error);
+        return std::nullopt;
+    }
+
+    // Return MPI data of the embedded s integer.
+    PAL::GCrypt::Handle<gcry_sexp_t> sSexp(gcry_sexp_find_token(signatureSexp, "s", 0));
+    if (!sSexp)
+        return std::nullopt;
+
+    return mpiZeroPrefixedData(sSexp, keySizeInBytes);
 }
 
-void CryptoAlgorithmRSASSA_PKCS1_v1_5::platformVerify(Ref<CryptoKey>&&, Vector<uint8_t>&&, Vector<uint8_t>&&, BoolCallback&&, ExceptionCallback&&, ScriptExecutionContext&, WorkQueue&)
+static std::optional<bool> gcryptVerify(gcry_sexp_t keySexp, const Vector<uint8_t>& signature, const Vector<uint8_t>& data, CryptoAlgorithmIdentifier hashAlgorithmIdentifier)
 {
-    notImplemented();
+    // Perform digest operation with the specified algorithm on the given data.
+    Vector<uint8_t> dataHash;
+    {
+        auto digestAlgorithm = hashCryptoDigestAlgorithm(hashAlgorithmIdentifier);
+        if (!digestAlgorithm)
+            return std::nullopt;
+
+        auto digest = PAL::CryptoDigest::create(*digestAlgorithm);
+        if (!digest)
+            return std::nullopt;
+
+        digest->addBytes(data.data(), data.size());
+        dataHash = digest->computeHash();
+    }
+
+    // Construct the sig-val s-expression that contains the signature data.
+    PAL::GCrypt::Handle<gcry_sexp_t> signatureSexp;
+    gcry_error_t error = gcry_sexp_build(&signatureSexp, nullptr, "(sig-val(rsa(s %b)))",
+        signature.size(), signature.data());
+    if (error != GPG_ERR_NO_ERROR) {
+        PAL::GCrypt::logError(error);
+        return std::nullopt;
+    }
+
+    // Construct the data s-expression that contains PKCS#1-padded hashed data.
+    PAL::GCrypt::Handle<gcry_sexp_t> dataSexp;
+    {
+        auto shaAlgorithm = hashAlgorithmName(hashAlgorithmIdentifier);
+        if (!shaAlgorithm)
+            return std::nullopt;
+
+        error = gcry_sexp_build(&dataSexp, nullptr, "(data(flags pkcs1)(hash %s %b))",
+            *shaAlgorithm, dataHash.size(), dataHash.data());
+        if (error != GPG_ERR_NO_ERROR) {
+            PAL::GCrypt::logError(error);
+            return std::nullopt;
+        }
+    }
+
+    // Perform the PK verification. We report success if there's no error returned, or
+    // a failure in any other case. OperationError should not be returned at this point,
+    // avoiding spilling information about the exact cause of verification failure.
+    error = gcry_pk_verify(signatureSexp, dataSexp, keySexp);
+    return { error == GPG_ERR_NO_ERROR };
 }
 
-ExceptionOr<void> CryptoAlgorithmRSASSA_PKCS1_v1_5::platformSign(const CryptoAlgorithmRsaSsaParamsDeprecated&, const CryptoKeyRSA&, const CryptoOperationData&, VectorCallback&&, VoidCallback&&)
+ExceptionOr<Vector<uint8_t>> CryptoAlgorithmRSASSA_PKCS1_v1_5::platformSign(const CryptoKeyRSA& key, const Vector<uint8_t>& data)
 {
-    notImplemented();
-    return Exception { NOT_SUPPORTED_ERR };
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!(key.keySizeInBits() % 8));
+    auto output = gcryptSign(key.platformKey(), data, key.hashAlgorithmIdentifier(), key.keySizeInBits() / 8);
+    if (!output)
+        return Exception { OperationError };
+    return WTFMove(*output);
 }
 
-ExceptionOr<void> CryptoAlgorithmRSASSA_PKCS1_v1_5::platformVerify(const CryptoAlgorithmRsaSsaParamsDeprecated&, const CryptoKeyRSA&, const CryptoOperationData&, const CryptoOperationData&, BoolCallback&&, VoidCallback&&)
+ExceptionOr<bool> CryptoAlgorithmRSASSA_PKCS1_v1_5::platformVerify(const CryptoKeyRSA& key, const Vector<uint8_t>& signature, const Vector<uint8_t>& data)
 {
-    notImplemented();
-    return Exception { NOT_SUPPORTED_ERR };
+    auto output = gcryptVerify(key.platformKey(), signature, data, key.hashAlgorithmIdentifier());
+    if (!output)
+        return Exception { OperationError };
+    return *output;
 }
 
 } // namespace WebCore

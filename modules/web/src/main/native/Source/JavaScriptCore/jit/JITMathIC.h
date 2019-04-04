@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,7 +36,6 @@
 #include "JITSubGenerator.h"
 #include "LinkBuffer.h"
 #include "Repatch.h"
-#include "SnippetOperand.h"
 
 namespace JSC {
 
@@ -55,15 +54,17 @@ struct MathICGenerationState {
 
 template <typename GeneratorType, bool(*isProfileEmpty)(ArithProfile&)>
 class JITMathIC {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
-    JITMathIC(ArithProfile* arithProfile)
+    JITMathIC(ArithProfile* arithProfile, Instruction* instruction)
         : m_arithProfile(arithProfile)
+        , m_instruction(instruction)
     {
     }
 
-    CodeLocationLabel doneLocation() { return m_inlineStart.labelAtOffset(m_inlineSize); }
-    CodeLocationLabel slowPathStartLocation() { return m_inlineStart.labelAtOffset(m_deltaFromStartToSlowPathStart); }
-    CodeLocationCall slowPathCallLocation() { return m_inlineStart.callAtOffset(m_deltaFromStartToSlowPathCallLocation); }
+    CodeLocationLabel<JSInternalPtrTag> doneLocation() { return m_inlineEnd; }
+    CodeLocationCall<JSInternalPtrTag> slowPathCallLocation() { return m_slowPathCallLocation; }
+    CodeLocationLabel<JSInternalPtrTag> slowPathStartLocation() { return m_slowPathStartLocation; }
 
     bool generateInline(CCallHelpers& jit, MathICGenerationState& state, bool shouldEmitProfiling = true)
     {
@@ -128,29 +129,33 @@ public:
         return false;
     }
 
-    void generateOutOfLine(VM& vm, CodeBlock* codeBlock, FunctionPtr callReplacement)
+    void generateOutOfLine(CodeBlock* codeBlock, FunctionPtr<CFunctionPtrTag> callReplacement)
     {
         auto linkJumpToOutOfLineSnippet = [&] () {
-            CCallHelpers jit(&vm, codeBlock);
+            CCallHelpers jit(codeBlock);
             auto jump = jit.jump();
             // We don't need a nop sled here because nobody should be jumping into the middle of an IC.
             bool needsBranchCompaction = false;
-            RELEASE_ASSERT(jit.m_assembler.buffer().codeSize() <= static_cast<size_t>(m_inlineSize));
-            LinkBuffer linkBuffer(jit, m_inlineStart.dataLocation(), jit.m_assembler.buffer().codeSize(), JITCompilationMustSucceed, needsBranchCompaction);
+            RELEASE_ASSERT(jit.m_assembler.buffer().codeSize() <= static_cast<size_t>(MacroAssembler::differenceBetweenCodePtr(m_inlineStart, m_inlineEnd)));
+            LinkBuffer linkBuffer(jit, m_inlineStart, jit.m_assembler.buffer().codeSize(), JITCompilationMustSucceed, needsBranchCompaction);
             RELEASE_ASSERT(linkBuffer.isValid());
-            linkBuffer.link(jump, CodeLocationLabel(m_code.code()));
-            FINALIZE_CODE(linkBuffer, ("JITMathIC: linking constant jump to out of line stub"));
+            linkBuffer.link(jump, CodeLocationLabel<JITStubRoutinePtrTag>(m_code.code()));
+            FINALIZE_CODE(linkBuffer, NoPtrTag, "JITMathIC: linking constant jump to out of line stub");
         };
 
         auto replaceCall = [&] () {
-            ftlThunkAwareRepatchCall(codeBlock, slowPathCallLocation(), callReplacement);
+#if COMPILER(MSVC)
+            ftlThunkAwareRepatchCall(codeBlock, slowPathCallLocation().retagged<JSInternalPtrTag>(), callReplacement);
+#else
+            ftlThunkAwareRepatchCall(codeBlock, slowPathCallLocation().template retagged<JSInternalPtrTag>(), callReplacement);
+#endif
         };
 
         bool shouldEmitProfiling = !JITCode::isOptimizingJIT(codeBlock->jitType());
 
         if (m_generateFastPathOnRepatch) {
 
-            CCallHelpers jit(&vm, codeBlock);
+            CCallHelpers jit(codeBlock);
             MathICGenerationState generationState;
             bool generatedInline = generateInline(jit, generationState, shouldEmitProfiling);
 
@@ -160,13 +165,13 @@ public:
             if (generatedInline) {
                 auto jumpToDone = jit.jump();
 
-                LinkBuffer linkBuffer(vm, jit, codeBlock, JITCompilationCanFail);
+                LinkBuffer linkBuffer(jit, codeBlock, JITCompilationCanFail);
                 if (!linkBuffer.didFailToAllocate()) {
                     linkBuffer.link(generationState.slowPathJumps, slowPathStartLocation());
                     linkBuffer.link(jumpToDone, doneLocation());
 
                     m_code = FINALIZE_CODE_FOR(
-                        codeBlock, linkBuffer, ("JITMathIC: generating out of line fast IC snippet"));
+                        codeBlock, linkBuffer, JITStubRoutinePtrTag, "JITMathIC: generating out of line fast IC snippet");
 
                     if (!generationState.shouldSlowPathRepatch) {
                         // We won't need to regenerate, so we can wire the slow path call
@@ -190,7 +195,7 @@ public:
         replaceCall();
 
         {
-            CCallHelpers jit(&vm, codeBlock);
+            CCallHelpers jit(codeBlock);
 
             MacroAssembler::JumpList endJumpList;
             MacroAssembler::JumpList slowPathJumpList;
@@ -200,7 +205,7 @@ public:
                 return;
             endJumpList.append(jit.jump());
 
-            LinkBuffer linkBuffer(vm, jit, codeBlock, JITCompilationCanFail);
+            LinkBuffer linkBuffer(jit, codeBlock, JITCompilationCanFail);
             if (linkBuffer.didFailToAllocate())
                 return;
 
@@ -208,7 +213,7 @@ public:
             linkBuffer.link(slowPathJumpList, slowPathStartLocation());
 
             m_code = FINALIZE_CODE_FOR(
-                codeBlock, linkBuffer, ("JITMathIC: generating out of line IC snippet"));
+                codeBlock, linkBuffer, JITStubRoutinePtrTag, "JITMathIC: generating out of line IC snippet");
         }
 
         linkJumpToOutOfLineSnippet();
@@ -216,20 +221,18 @@ public:
 
     void finalizeInlineCode(const MathICGenerationState& state, LinkBuffer& linkBuffer)
     {
-        CodeLocationLabel start = linkBuffer.locationOf(state.fastPathStart);
+        CodeLocationLabel<JSInternalPtrTag> start = linkBuffer.locationOf<JSInternalPtrTag>(state.fastPathStart);
         m_inlineStart = start;
 
-        m_inlineSize = MacroAssembler::differenceBetweenCodePtr(
-            start, linkBuffer.locationOf(state.fastPathEnd));
-        ASSERT(m_inlineSize > 0);
+        m_inlineEnd = linkBuffer.locationOf<JSInternalPtrTag>(state.fastPathEnd);
+        ASSERT(m_inlineEnd.untaggedExecutableAddress() > m_inlineStart.untaggedExecutableAddress());
 
-        m_deltaFromStartToSlowPathCallLocation = MacroAssembler::differenceBetweenCodePtr(
-            start, linkBuffer.locationOf(state.slowPathCall));
-        m_deltaFromStartToSlowPathStart = MacroAssembler::differenceBetweenCodePtr(
-            start, linkBuffer.locationOf(state.slowPathStart));
+        m_slowPathCallLocation = linkBuffer.locationOf<JSInternalPtrTag>(state.slowPathCall);
+        m_slowPathStartLocation = linkBuffer.locationOf<JSInternalPtrTag>(state.slowPathStart);
     }
 
     ArithProfile* arithProfile() const { return m_arithProfile; }
+    Instruction* instruction() const { return m_instruction; }
 
 #if ENABLE(MATH_IC_STATS)
     size_t m_generatedCodeSize { 0 };
@@ -243,11 +246,12 @@ public:
 #endif
 
     ArithProfile* m_arithProfile;
-    MacroAssemblerCodeRef m_code;
-    CodeLocationLabel m_inlineStart;
-    int32_t m_inlineSize;
-    int32_t m_deltaFromStartToSlowPathCallLocation;
-    int32_t m_deltaFromStartToSlowPathStart;
+    Instruction* m_instruction;
+    MacroAssemblerCodeRef<JITStubRoutinePtrTag> m_code;
+    CodeLocationLabel<JSInternalPtrTag> m_inlineStart;
+    CodeLocationLabel<JSInternalPtrTag> m_inlineEnd;
+    CodeLocationLabel<JSInternalPtrTag> m_slowPathCallLocation;
+    CodeLocationLabel<JSInternalPtrTag> m_slowPathStartLocation;
     bool m_generateFastPathOnRepatch { false };
     GeneratorType m_generator;
 };
@@ -259,8 +263,8 @@ inline bool isBinaryProfileEmpty(ArithProfile& arithProfile)
 template <typename GeneratorType>
 class JITBinaryMathIC : public JITMathIC<GeneratorType, isBinaryProfileEmpty> {
 public:
-    JITBinaryMathIC(ArithProfile* arithProfile)
-        : JITMathIC<GeneratorType, isBinaryProfileEmpty>(arithProfile)
+    JITBinaryMathIC(ArithProfile* arithProfile, Instruction* instruction)
+        : JITMathIC<GeneratorType, isBinaryProfileEmpty>(arithProfile, instruction)
     {
     }
 };
@@ -277,8 +281,8 @@ inline bool isUnaryProfileEmpty(ArithProfile& arithProfile)
 template <typename GeneratorType>
 class JITUnaryMathIC : public JITMathIC<GeneratorType, isUnaryProfileEmpty> {
 public:
-    JITUnaryMathIC(ArithProfile* arithProfile)
-        : JITMathIC<GeneratorType, isUnaryProfileEmpty>(arithProfile)
+    JITUnaryMathIC(ArithProfile* arithProfile, Instruction* instruction)
+        : JITMathIC<GeneratorType, isUnaryProfileEmpty>(arithProfile, instruction)
     {
     }
 };

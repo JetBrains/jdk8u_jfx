@@ -25,7 +25,6 @@
 #pragma once
 
 #include "Animation.h"
-#include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
@@ -58,7 +57,7 @@ private:
     AnimationList& operator=(const AnimationList&);
     AnimationList& operator=(AnimationList&&) = default;
 
-    Vector<Ref<Animation>> m_animations;
+    Vector<Ref<Animation>, 0, CrashOnOverflow, 0> m_animations;
 };
 
 

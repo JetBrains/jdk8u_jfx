@@ -28,13 +28,12 @@
 
 #include "ActiveDOMCallback.h"
 #include "QualifiedName.h"
-#include <heap/Weak.h>
-#include <heap/WeakInlines.h>
-#include <runtime/JSObject.h>
+#include <JavaScriptCore/JSObject.h>
+#include <JavaScriptCore/Weak.h>
+#include <JavaScriptCore/WeakInlines.h>
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/RefCounted.h>
-#include <wtf/RefPtr.h>
 #include <wtf/text/AtomicStringHash.h>
 
 namespace JSC {
@@ -95,7 +94,7 @@ private:
 
     RefPtr<Element> tryToConstructCustomElement(Document&, const AtomicString&);
 
-    void invokeCallback(Element&, JSC::JSObject* callback, const WTF::Function<void(JSC::ExecState*, JSDOMGlobalObject*, JSC::MarkedArgumentBuffer&)>& addArguments = { });
+    void invokeCallback(Element&, JSC::JSObject* callback, const WTF::Function<void(JSC::ExecState*, JSDOMGlobalObject*, JSC::MarkedArgumentBuffer&)>& addArguments = [](JSC::ExecState*, JSDOMGlobalObject*, JSC::MarkedArgumentBuffer&) { });
 
     QualifiedName m_name;
     JSC::Weak<JSC::JSObject> m_constructor;
@@ -103,7 +102,7 @@ private:
     JSC::Weak<JSC::JSObject> m_disconnectedCallback;
     JSC::Weak<JSC::JSObject> m_adoptedCallback;
     JSC::Weak<JSC::JSObject> m_attributeChangedCallback;
-    RefPtr<DOMWrapperWorld> m_isolatedWorld;
+    Ref<DOMWrapperWorld> m_isolatedWorld;
     Vector<RefPtr<Element>, 1> m_constructionStack;
     HashSet<AtomicString> m_observedAttributes;
 };

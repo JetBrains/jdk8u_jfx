@@ -21,10 +21,6 @@
 #include "config.h"
 #include "CSSParserSelector.h"
 
-#include "CSSCustomPropertyValue.h"
-#include "CSSParserIdioms.h"
-#include "CSSPrimitiveValue.h"
-#include "CSSFunctionValue.h"
 #include "CSSSelector.h"
 #include "CSSSelectorList.h"
 #include "SelectorPseudoTypeMap.h"
@@ -128,11 +124,9 @@ CSSParserSelector::~CSSParserSelector()
     }
 }
 
-void CSSParserSelector::adoptSelectorVector(Vector<std::unique_ptr<CSSParserSelector>>& selectorVector)
+void CSSParserSelector::adoptSelectorVector(Vector<std::unique_ptr<CSSParserSelector>>&& selectorVector)
 {
-    auto selectorList = std::make_unique<CSSSelectorList>();
-    selectorList->adoptSelectorVector(selectorVector);
-    m_selector->setSelectorList(WTFMove(selectorList));
+    m_selector->setSelectorList(std::make_unique<CSSSelectorList>(WTFMove(selectorVector)));
 }
 
 void CSSParserSelector::setLangArgumentList(std::unique_ptr<Vector<AtomicString>> argumentList)
@@ -202,11 +196,6 @@ void CSSParserSelector::appendTagHistory(CSSParserSelectorCombinator relation, s
     case CSSParserSelectorCombinator::DescendantSpace:
         selectorRelation = CSSSelector::DescendantSpace;
         break;
-#if ENABLE(CSS_SELECTORS_LEVEL4)
-    case CSSParserSelectorCombinator::DescendantDoubleChild:
-        selectorRelation = CSSSelector::DescendantDoubleChild;
-        break;
-#endif
     case CSSParserSelectorCombinator::DirectAdjacent:
         selectorRelation = CSSSelector::DirectAdjacent;
         break;

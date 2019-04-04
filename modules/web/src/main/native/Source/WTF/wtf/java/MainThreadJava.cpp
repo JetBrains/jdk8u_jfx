@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2018, Oracle and/or its affiliates. All rights reserved.
  */
 #include "config.h"
 
@@ -10,7 +10,7 @@
 namespace WTF {
 void scheduleDispatchFunctionsOnMainThread()
 {
-    AutoAttachToJavaThread autoAttach;
+    AttachThreadAsNonDaemonToJavaEnv autoAttach;
     JNIEnv* env = autoAttach.env();
     static JGClass jMainThreadCls(env->FindClass("com/sun/webkit/MainThread"));
 

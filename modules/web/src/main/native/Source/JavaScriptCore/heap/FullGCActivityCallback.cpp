@@ -30,10 +30,8 @@
 
 namespace JSC {
 
-#if USE(CF) || USE(GLIB)
-
 #if !PLATFORM(IOS)
-const double pagingTimeOut = 0.1; // Time in seconds to allow opportunistic timer to iterate over all blocks to see if the Heap is paged out.
+const constexpr Seconds pagingTimeOut { 100_ms }; // Time in seconds to allow opportunistic timer to iterate over all blocks to see if the Heap is paged out.
 #endif
 
 FullGCActivityCallback::FullGCActivityCallback(Heap* heap)
@@ -41,16 +39,16 @@ FullGCActivityCallback::FullGCActivityCallback(Heap* heap)
 {
 }
 
-void FullGCActivityCallback::doCollection()
+void FullGCActivityCallback::doCollection(VM& vm)
 {
-    Heap& heap = m_vm->heap;
-    m_didSyncGCRecently = false;
+    Heap& heap = vm.heap;
+    m_didGCRecently = false;
 
 #if !PLATFORM(IOS)
-    double startTime = WTF::monotonicallyIncreasingTime();
+    MonotonicTime startTime = MonotonicTime::now();
     if (heap.isPagedOut(startTime + pagingTimeOut)) {
         cancel();
-        heap.increaseLastFullGCLength(Seconds(pagingTimeOut));
+        heap.increaseLastFullGCLength(pagingTimeOut);
         return;
     }
 #endif
@@ -58,16 +56,15 @@ void FullGCActivityCallback::doCollection()
     heap.collectAsync(CollectionScope::Full);
 }
 
-double FullGCActivityCallback::lastGCLength()
+Seconds FullGCActivityCallback::lastGCLength(Heap& heap)
 {
-    return m_vm->heap.lastFullGCLength().seconds();
+    return heap.lastFullGCLength();
 }
 
-double FullGCActivityCallback::deathRate()
+double FullGCActivityCallback::deathRate(Heap& heap)
 {
-    Heap* heap = &m_vm->heap;
-    size_t sizeBefore = heap->sizeBeforeLastFullCollection();
-    size_t sizeAfter = heap->sizeAfterLastFullCollection();
+    size_t sizeBefore = heap.sizeBeforeLastFullCollection();
+    size_t sizeAfter = heap.sizeAfterLastFullCollection();
     if (!sizeBefore)
         return 1.0;
     if (sizeAfter > sizeBefore) {
@@ -83,33 +80,5 @@ double FullGCActivityCallback::gcTimeSlice(size_t bytes)
 {
     return std::min((static_cast<double>(bytes) / MB) * Options::percentCPUPerMBForFullTimer(), Options::collectionTimerMaxPercentCPU());
 }
-
-#else
-
-FullGCActivityCallback::FullGCActivityCallback(Heap* heap)
-    : GCActivityCallback(heap)
-{
-}
-
-void FullGCActivityCallback::doCollection()
-{
-}
-
-double FullGCActivityCallback::lastGCLength()
-{
-    return 0;
-}
-
-double FullGCActivityCallback::deathRate()
-{
-    return 0;
-}
-
-double FullGCActivityCallback::gcTimeSlice(size_t)
-{
-    return 0;
-}
-
-#endif // USE(CF) || USE(GLIB)
 
 } // namespace JSC

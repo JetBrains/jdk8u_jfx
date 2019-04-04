@@ -28,12 +28,13 @@
 
 #pragma once
 
-#include "EventTarget.h"
 #include "ExceptionOr.h"
 #include "SQLCallbackWrapper.h"
 #include "SQLTransactionBackend.h"
 #include "SQLTransactionStateMachine.h"
 #include "SQLValue.h"
+#include <wtf/Deque.h>
+#include <wtf/Lock.h>
 #include <wtf/Optional.h>
 
 namespace WebCore {
@@ -49,7 +50,7 @@ class VoidCallback;
 
 class SQLTransactionWrapper : public ThreadSafeRefCounted<SQLTransactionWrapper> {
 public:
-    virtual ~SQLTransactionWrapper() { }
+    virtual ~SQLTransactionWrapper() = default;
     virtual bool performPreflight(SQLTransaction&) = 0;
     virtual bool performPostflight(SQLTransaction&) = 0;
     virtual SQLError* sqlError() const = 0;

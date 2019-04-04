@@ -23,6 +23,7 @@
 #include "Microtasks.h"
 
 #include <wtf/MainThread.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/SetForScope.h>
 
 namespace WebCore {
@@ -37,9 +38,7 @@ MicrotaskQueue::MicrotaskQueue()
 {
 }
 
-MicrotaskQueue::~MicrotaskQueue()
-{
-}
+MicrotaskQueue::~MicrotaskQueue() = default;
 
 MicrotaskQueue& MicrotaskQueue::mainThreadQueue()
 {
@@ -48,11 +47,22 @@ MicrotaskQueue& MicrotaskQueue::mainThreadQueue()
     return queue;
 }
 
+MicrotaskQueue& MicrotaskQueue::contextQueue(ScriptExecutionContext& context)
+{
+    // While main thread has many ScriptExecutionContexts, WorkerGlobalScope and worker thread have
+    // one on one correspondence. The lifetime of MicrotaskQueue is aligned to this semantics.
+    // While main thread MicrotaskQueue is persistently held, worker's MicrotaskQueue is held by
+    // WorkerGlobalScope.
+    if (isMainThread())
+        return mainThreadQueue();
+    return downcast<WorkerGlobalScope>(context).microtaskQueue();
+}
+
 void MicrotaskQueue::append(std::unique_ptr<Microtask>&& task)
 {
     m_microtaskQueue.append(WTFMove(task));
 
-    m_timer.startOneShot(0);
+    m_timer.startOneShot(0_s);
 }
 
 void MicrotaskQueue::remove(const Microtask& task)

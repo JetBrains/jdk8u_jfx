@@ -28,70 +28,57 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef MockRealtimeMediaSource_h
-#define MockRealtimeMediaSource_h
+#pragma once
 
 #if ENABLE(MEDIA_STREAM)
 
+#include "CaptureDevice.h"
+#include "MockMediaDevice.h"
 #include "RealtimeMediaSource.h"
-
-#if USE(OPENWEBRTC)
-#include "RealtimeMediaSourceOwr.h"
-#endif
 
 namespace WebCore {
 
-class CaptureDevice;
-
-#if USE(OPENWEBRTC)
-using BaseRealtimeMediaSourceClass = RealtimeMediaSourceOwr;
-#else
-using BaseRealtimeMediaSourceClass = RealtimeMediaSource;
-#endif
-
-class MockRealtimeMediaSource : public BaseRealtimeMediaSourceClass {
+class MockRealtimeMediaSource : public RealtimeMediaSource {
 public:
-    virtual ~MockRealtimeMediaSource() { }
+    virtual ~MockRealtimeMediaSource() = default;
 
-    static const AtomicString& mockAudioSourcePersistentID();
-    static const AtomicString& mockAudioSourceName();
+    static void setDevices(Vector<MockMediaDevice>&&);
+    static void addDevice(const MockMediaDevice&);
+    static void removeDevice(const String& persistentId);
+    WEBCORE_EXPORT static void resetDevices();
 
-    static const AtomicString& mockVideoSourcePersistentID();
-    static const AtomicString& mockVideoSourceName();
+    static Vector<CaptureDevice>& audioDevices();
+    static Vector<CaptureDevice>& videoDevices();
+    static Vector<CaptureDevice>& displayDevices();
 
-    static CaptureDevice audioDeviceInfo();
-    static CaptureDevice videoDeviceInfo();
+    static std::optional<CaptureDevice> captureDeviceWithPersistentID(CaptureDevice::DeviceType, const String&);
 
 protected:
     MockRealtimeMediaSource(const String& id, Type, const String& name);
+
+    static void createCaptureDevice(const MockMediaDevice&);
 
     virtual void updateSettings(RealtimeMediaSourceSettings&) = 0;
     virtual void initializeCapabilities(RealtimeMediaSourceCapabilities&) = 0;
     virtual void initializeSupportedConstraints(RealtimeMediaSourceSupportedConstraints&) = 0;
 
-    void startProducingData() override;
-    void stopProducingData() override;
-
-    RefPtr<RealtimeMediaSourceCapabilities> capabilities() const override;
+    const RealtimeMediaSourceCapabilities& capabilities() const override;
     const RealtimeMediaSourceSettings& settings() const override;
 
-    MediaConstraints& constraints() { return *m_constraints.get(); }
     RealtimeMediaSourceSupportedConstraints& supportedConstraints();
+
+    const MockMediaDevice& device() const { return m_device; }
+    MockMediaDevice m_device;
 
 private:
     void initializeCapabilities();
     void initializeSettings();
-    bool isProducingData() const override { return m_isProducingData; }
 
     RealtimeMediaSourceSettings m_currentSettings;
     RealtimeMediaSourceSupportedConstraints m_supportedConstraints;
-    RefPtr<RealtimeMediaSourceCapabilities> m_capabilities;
-    RefPtr<MediaConstraints> m_constraints;
-    bool m_isProducingData { false };
+    std::unique_ptr<RealtimeMediaSourceCapabilities> m_capabilities;
 };
 
 } // namespace WebCore
 
 #endif // ENABLE(MEDIA_STREAM)
-
-#endif // MockRealtimeMediaSource_h

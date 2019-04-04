@@ -47,6 +47,16 @@ static WorkQueue& decodeQueue()
 struct DecodeTask {
     WTF_MAKE_FAST_ALLOCATED;
 public:
+    DecodeTask(const String& urlString, StringView&& encodedData, bool isBase64, const ScheduleContext& scheduleContext, DecodeCompletionHandler&& completionHandler, Result&& result)
+        : urlString(urlString.isolatedCopy())
+        , encodedData(WTFMove(encodedData))
+        , isBase64(isBase64)
+        , scheduleContext(scheduleContext)
+        , completionHandler(WTFMove(completionHandler))
+        , result(WTFMove(result))
+    {
+    }
+
     const String urlString;
     const StringView encodedData;
     const bool isBase64;
@@ -79,7 +89,7 @@ private:
         ref();
 
         auto scheduledPairs = m_decodeTask->scheduleContext.scheduledPairs;
-        m_timer.startOneShot(0);
+        m_timer.startOneShot(0_s);
         m_timer.schedule(scheduledPairs);
     }
 
@@ -111,9 +121,9 @@ static Result parseMediaType(const String& mediaType)
     // If <mediatype> is omitted, it defaults to text/plain;charset=US-ASCII. As a shorthand,
     // "text/plain" can be omitted but the charset parameter supplied.
     if (mimeType.isEmpty()) {
-        mimeType = ASCIILiteral("text/plain");
+        mimeType = "text/plain"_s;
         if (charset.isEmpty())
-            charset = ASCIILiteral("US-ASCII");
+            charset = "US-ASCII"_s;
     }
     return { mimeType, charset, !mediaType.isEmpty() ? mediaType : "text/plain;charset=US-ASCII", nullptr };
 }
@@ -134,14 +144,14 @@ static std::unique_ptr<DecodeTask> createDecodeTask(const URL& url, const Schedu
     bool isBase64 = header.endsWithIgnoringASCIICase(StringView(base64String));
     auto mediaType = (isBase64 ? header.substring(0, header.length() - strlen(base64String)) : header).toString();
 
-    return std::make_unique<DecodeTask>(DecodeTask {
-        urlString.isolatedCopy(),
+    return std::make_unique<DecodeTask>(
+        urlString,
         WTFMove(encodedData),
         isBase64,
         scheduleContext,
         WTFMove(completionHandler),
         parseMediaType(mediaType)
-    });
+    );
 }
 
 static void decodeBase64(DecodeTask& task)
@@ -155,7 +165,7 @@ static void decodeBase64(DecodeTask& task)
             return;
     }
     buffer.shrinkToFit();
-    task.result.data = SharedBuffer::adoptVector(buffer);
+    task.result.data = SharedBuffer::create(WTFMove(buffer));
 }
 
 static void decodeEscaped(DecodeTask& task)
@@ -165,7 +175,7 @@ static void decodeEscaped(DecodeTask& task)
     auto buffer = decodeURLEscapeSequencesAsData(task.encodedData, encoding);
 
     buffer.shrinkToFit();
-    task.result.data = SharedBuffer::adoptVector(buffer);
+    task.result.data = SharedBuffer::create(WTFMove(buffer));
 }
 
 void decode(const URL& url, const ScheduleContext& scheduleContext, DecodeCompletionHandler&& completionHandler)

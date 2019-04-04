@@ -30,6 +30,7 @@
 #define RunLoopTimer_h
 
 #include <wtf/SchedulePair.h>
+#include <wtf/Seconds.h>
 #include <wtf/RetainPtr.h>
 
 namespace WTF {
@@ -45,10 +46,10 @@ public:
     WTF_EXPORT_PRIVATE void schedule(const SchedulePair*);
     WTF_EXPORT_PRIVATE void schedule(const SchedulePairHashSet&);
 
-    WTF_EXPORT_PRIVATE void start(double nextFireInterval, double repeatInterval);
+    WTF_EXPORT_PRIVATE void start(Seconds nextFireInterval, Seconds repeatInterval);
 
-    void startRepeating(double repeatInterval) { start(repeatInterval, repeatInterval); }
-    void startOneShot(double interval) { start(interval, 0); }
+    void startRepeating(Seconds repeatInterval) { start(repeatInterval, repeatInterval); }
+    void startOneShot(Seconds interval) { start(interval, 0_s); }
 
     WTF_EXPORT_PRIVATE void stop();
     bool isActive() const;

@@ -20,12 +20,12 @@
 
 #pragma once
 
-#include "FEFlood.h"
 #include "SVGFilterPrimitiveStandardAttributes.h"
 
 namespace WebCore {
 
 class SVGFEFloodElement final : public SVGFilterPrimitiveStandardAttributes {
+    WTF_MAKE_ISO_ALLOCATED(SVGFEFloodElement);
 public:
     static Ref<SVGFEFloodElement> create(const QualifiedName&, Document&);
 

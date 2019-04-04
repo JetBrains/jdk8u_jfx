@@ -27,6 +27,7 @@
 namespace WebCore {
 
 class HTMLDocument : public Document {
+    WTF_MAKE_ISO_ALLOCATED(HTMLDocument);
 public:
     static Ref<HTMLDocument> create(Frame* frame, const URL& url)
     {
@@ -43,21 +44,8 @@ public:
     WEBCORE_EXPORT int width();
     WEBCORE_EXPORT int height();
 
-    WEBCORE_EXPORT const AtomicString& bgColor() const;
-    WEBCORE_EXPORT void setBgColor(const String&);
-    WEBCORE_EXPORT const AtomicString& fgColor() const;
-    WEBCORE_EXPORT void setFgColor(const String&);
-    WEBCORE_EXPORT const AtomicString& alinkColor() const;
-    WEBCORE_EXPORT void setAlinkColor(const String&);
-    WEBCORE_EXPORT const AtomicString& linkColor() const;
-    WEBCORE_EXPORT void setLinkColor(const String&);
-    WEBCORE_EXPORT const AtomicString& vlinkColor() const;
-    WEBCORE_EXPORT void setVlinkColor(const String&);
-
-    WEBCORE_EXPORT void clear();
-
-    WEBCORE_EXPORT void captureEvents();
-    WEBCORE_EXPORT void releaseEvents();
+    std::optional<Variant<RefPtr<WindowProxy>, RefPtr<Element>, RefPtr<HTMLCollection>>> namedItem(const AtomicString&);
+    Vector<AtomicString> supportedPropertyNames() const;
 
     Element* documentNamedItem(const AtomicStringImpl& name) const { return m_documentNamedItem.getElementByDocumentNamedItem(name, *this); }
     bool hasDocumentNamedItem(const AtomicStringImpl& name) const { return m_documentNamedItem.contains(name); }
@@ -81,8 +69,8 @@ private:
     Ref<DocumentParser> createParser() override;
     Ref<Document> cloneDocumentWithoutChildren() const final;
 
-    DocumentOrderedMap m_documentNamedItem;
-    DocumentOrderedMap m_windowNamedItem;
+    TreeScopeOrderedMap m_documentNamedItem;
+    TreeScopeOrderedMap m_windowNamedItem;
 };
 
 } // namespace WebCore

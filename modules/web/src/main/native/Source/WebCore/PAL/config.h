@@ -25,23 +25,11 @@
 
 #include <wtf/Platform.h>
 
-#include <wtf/ExportMacros.h>
-
-#ifdef __APPLE__
-#define HAVE_FUNC_USLEEP 1
-#endif /* __APPLE__ */
-
-#if OS(WINDOWS)
-
-#ifndef _WIN32_WINNT
-#define _WIN32_WINNT 0x601
+#if PLATFORM(WIN)
+#include <PALHeaderDetection.h>
 #endif
 
-#ifndef WINVER
-#define WINVER 0x0601
-#endif
-
-#endif /* OS(WINDOWS) */
+#include <pal/ExportMacros.h>
 
 #ifdef __cplusplus
 
@@ -56,3 +44,15 @@
 #endif
 
 #include <wtf/DisallowCType.h>
+
+#if PLATFORM(WIN) && USE(CG) && HAVE(AVCF)
+#define USE_AVFOUNDATION 1
+
+#if HAVE(AVCF_LEGIBLE_OUTPUT)
+#define USE_AVFOUNDATION 1
+#define HAVE_AVFOUNDATION_MEDIA_SELECTION_GROUP 1
+#define HAVE_AVFOUNDATION_LEGIBLE_OUTPUT_SUPPORT 1
+#define HAVE_MEDIA_ACCESSIBILITY_FRAMEWORK 1
+#endif
+
+#endif

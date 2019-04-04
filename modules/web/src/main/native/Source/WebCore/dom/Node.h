@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2017 Apple Inc. All rights reserved.
  * Copyright (C) 2008, 2009 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
  *
  * This library is free software; you can redistribute it and/or
@@ -33,9 +33,9 @@
 #include "TreeScope.h"
 #include "URLHash.h"
 #include <wtf/Forward.h>
+#include <wtf/IsoMalloc.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/MainThread.h>
-#include <wtf/TypeCasts.h>
 
 // This needs to be here because Document.h also depends on it.
 #define DUMP_NODE_STATISTICS 0
@@ -79,11 +79,10 @@ private:
 };
 
 class Node : public EventTarget {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_ISO_ALLOCATED(Node);
 
     friend class Document;
     friend class TreeScope;
-    friend class TreeScopeAdopter;
 public:
     enum NodeType {
         ELEMENT_NODE = 1,
@@ -203,10 +202,10 @@ public:
     bool isSVGElement() const { return getFlag(IsSVGFlag); }
     bool isMathMLElement() const { return getFlag(IsMathMLFlag); }
 
-    bool isPseudoElement() const { return pseudoId() != NOPSEUDO; }
-    bool isBeforePseudoElement() const { return pseudoId() == BEFORE; }
-    bool isAfterPseudoElement() const { return pseudoId() == AFTER; }
-    PseudoId pseudoId() const { return (isElementNode() && hasCustomStyleResolveCallbacks()) ? customPseudoId() : NOPSEUDO; }
+    bool isPseudoElement() const { return pseudoId() != PseudoId::None; }
+    bool isBeforePseudoElement() const { return pseudoId() == PseudoId::Before; }
+    bool isAfterPseudoElement() const { return pseudoId() == PseudoId::After; }
+    PseudoId pseudoId() const { return (isElementNode() && hasCustomStyleResolveCallbacks()) ? customPseudoId() : PseudoId::None; }
 
     virtual bool isMediaControlElement() const { return false; }
     virtual bool isMediaControls() const { return false; }
@@ -223,7 +222,7 @@ public:
     virtual bool isImageControlsButtonElement() const { return false; }
 #endif
 
-    bool isDocumentNode() const;
+    bool isDocumentNode() const { return getFlag(IsContainerFlag) && !getFlag(IsElementFlag) && !getFlag(IsDocumentFragmentFlag); }
     bool isTreeScope() const;
     bool isDocumentFragment() const { return getFlag(IsDocumentFragmentFlag); }
     bool isShadowRoot() const { return isDocumentFragment() && isTreeScope(); }
@@ -260,6 +259,7 @@ public:
     Element* parentOrShadowHostElement() const;
     void setParentNode(ContainerNode*);
     Node& rootNode() const;
+    Node& traverseToRootNode() const;
     Node& shadowIncludingRoot() const;
 
     struct GetRootNodeOptions {
@@ -338,7 +338,7 @@ public:
     {
         return computeEditability(treatment, ShouldUpdateStyle::DoNotUpdate) != Editability::ReadOnly;
     }
-    // FIXME: Replace every use of this function by helpers in htmlediting.h
+    // FIXME: Replace every use of this function by helpers in Editing.h
     bool hasRichlyEditableStyle() const
     {
         return computeEditability(UserSelectAllIsAlwaysNonEditable, ShouldUpdateStyle::DoNotUpdate) == Editability::CanEditRichly;
@@ -369,6 +369,7 @@ public:
         ASSERT(m_treeScope);
         return *m_treeScope;
     }
+    void setTreeScopeRecursively(TreeScope&);
     static ptrdiff_t treeScopeMemoryOffset() { return OBJECT_OFFSETOF(Node, m_treeScope); }
 
     // Returns true if this node is associated with a document and is in its associated document's
@@ -431,38 +432,27 @@ public:
     // Wrapper for nodes that don't have a renderer, but still cache the style (like HTMLOptionElement).
     const RenderStyle* renderStyle() const;
 
-    virtual const RenderStyle* computedStyle(PseudoId pseudoElementSpecifier = NOPSEUDO);
+    virtual const RenderStyle* computedStyle(PseudoId pseudoElementSpecifier = PseudoId::None);
 
-    // -----------------------------------------------------------------------------
-    // Notification of document structure changes (see ContainerNode.h for more notification methods)
-    //
-    // At first, WebKit notifies the node that it has been inserted into the document. This is called during document parsing, and also
-    // when a node is added through the DOM methods insertBefore(), appendChild() or replaceChild(). The call happens _after_ the node has been added to the tree.
-    // This is similar to the DOMNodeInsertedIntoDocument DOM event, but does not require the overhead of event
-    // dispatching.
-    //
-    // WebKit notifies this callback regardless if the subtree of the node is a document tree or a floating subtree.
-    // Implementation can determine the type of subtree by seeing insertionPoint->isConnected().
-    // For a performance reason, notifications are delivered only to ContainerNode subclasses if the insertionPoint is out of document.
-    //
-    // There is another callback named finishedInsertingSubtree(), which is called after all descendants are notified.
-    // Only a few subclasses actually need this. To utilize this, the node should return InsertionShouldCallFinishedInsertingSubtree
-    // from insrtedInto().
-    //
-    enum InsertionNotificationRequest {
-        InsertionDone,
-        InsertionShouldCallFinishedInsertingSubtree
+    enum class InsertedIntoAncestorResult {
+        Done,
+        NeedsPostInsertionCallback,
     };
 
-    virtual InsertionNotificationRequest insertedInto(ContainerNode& insertionPoint);
-    virtual void finishedInsertingSubtree() { }
+    struct InsertionType {
+        bool connectedToDocument { false };
+        bool treeScopeChanged { false };
+    };
+    // Called *after* this node or its ancestor is inserted into a new parent (may or may not be a part of document) by scripts or parser.
+    // insertedInto **MUST NOT** invoke scripts. Return NeedsPostInsertionCallback and implement didFinishInsertingNode instead to run scripts.
+    virtual InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode& parentOfInsertedTree);
+    virtual void didFinishInsertingNode() { }
 
-    // Notifies the node that it is no longer part of the tree.
-    //
-    // This is a dual of insertedInto(), and is similar to the DOMNodeRemovedFromDocument DOM event, but does not require the overhead of event
-    // dispatching, and is called _after_ the node is removed from the tree.
-    //
-    virtual void removedFrom(ContainerNode& insertionPoint);
+    struct RemovalType {
+        bool disconnectedFromDocument { false };
+        bool treeScopeChanged { false };
+    };
+    virtual void removedFromAncestor(RemovalType, ContainerNode& oldParentOfRemovedTree);
 
 #if ENABLE(TREE_DEBUGGING)
     virtual void formatForDebugger(char* buffer, unsigned length) const;
@@ -474,7 +464,8 @@ public:
     void showTreeForThisAcrossFrame() const;
 #endif // ENABLE(TREE_DEBUGGING)
 
-    void invalidateNodeListAndCollectionCachesInAncestors(const QualifiedName* attrName = nullptr, Element* attributeOwnerElement = nullptr);
+    void invalidateNodeListAndCollectionCachesInAncestors();
+    void invalidateNodeListAndCollectionCachesInAncestorsForAttribute(const QualifiedName& attrName);
     NodeListsNodeData* nodeLists();
     void clearNodeLists();
 
@@ -484,8 +475,6 @@ public:
 
     WEBCORE_EXPORT unsigned short compareDocumentPosition(Node&);
 
-    Node* toNode() override;
-
     EventTargetInterface eventTargetInterface() const override;
     ScriptExecutionContext* scriptExecutionContext() const final; // Implemented in Document.h
 
@@ -493,25 +482,22 @@ public:
     bool removeEventListener(const AtomicString& eventType, EventListener&, const ListenerOptions&) override;
 
     using EventTarget::dispatchEvent;
-    bool dispatchEvent(Event&) override;
+    void dispatchEvent(Event&) override;
 
     void dispatchScopedEvent(Event&);
 
     virtual void handleLocalEvents(Event&);
 
     void dispatchSubtreeModifiedEvent();
-    bool dispatchDOMActivateEvent(int detail, Event& underlyingEvent);
+    void dispatchDOMActivateEvent(Event& underlyingClickEvent);
 
 #if ENABLE(TOUCH_EVENTS)
     virtual bool allowsDoubleTapGesture() const { return true; }
 #endif
 
-#if ENABLE(TOUCH_EVENTS) && !PLATFORM(IOS)
-    bool dispatchTouchEvent(TouchEvent&);
-#endif
     bool dispatchBeforeLoadEvent(const String& sourceURL);
 
-    void dispatchInputEvent();
+    WEBCORE_EXPORT void dispatchInputEvent();
 
     // Perform the default action for an event.
     virtual void defaultEventHandler(Event&);
@@ -531,7 +517,7 @@ public:
     EventTargetData* eventTargetDataConcurrently() final;
     EventTargetData& ensureEventTargetData() final;
 
-    HashMap<MutationObserver*, MutationRecordDeliveryOptions> registeredMutationObservers(MutationObserver::MutationType, const QualifiedName* attributeName);
+    HashMap<Ref<MutationObserver>, MutationRecordDeliveryOptions> registeredMutationObservers(MutationObserver::MutationType, const QualifiedName* attributeName);
     void registerMutationObserver(MutationObserver&, MutationObserverOptions, const HashSet<AtomicString>& attributeFilter);
     void unregisterMutationObserver(MutationObserverRegistration&);
     void registerTransientMutationObserver(MutationObserverRegistration&);
@@ -572,6 +558,7 @@ protected:
         IsStyledElementFlag = 1 << 3,
         IsHTMLFlag = 1 << 4,
         IsSVGFlag = 1 << 5,
+        DescendantsAffectedByPreviousSiblingFlag = 1 << 6,
         ChildNeedsStyleRecalcFlag = 1 << 7,
         IsConnectedFlag = 1 << 8,
         IsLinkFlag = 1 << 9,
@@ -612,6 +599,10 @@ protected:
     void setFlag(NodeFlags mask) const { m_nodeFlags |= mask; }
     void clearFlag(NodeFlags mask) const { m_nodeFlags &= ~mask; }
 
+    bool isParsingChildrenFinished() const { return getFlag(IsParsingChildrenFinishedFlag); }
+    void setIsParsingChildrenFinished() { setFlag(IsParsingChildrenFinishedFlag); }
+    void clearIsParsingChildrenFinished() { clearFlag(IsParsingChildrenFinishedFlag); }
+
     enum ConstructionType {
         CreateOther = DefaultNodeFlags,
         CreateText = DefaultNodeFlags | IsTextFlag,
@@ -628,8 +619,6 @@ protected:
         CreateMathMLElement = CreateStyledElement | IsMathMLFlag
     };
     Node(Document&, ConstructionType);
-
-    virtual void didMoveToNewDocument(Document& oldDocument);
 
     virtual void addSubresourceAttributeURLs(ListHashSet<URL>&) const { }
 
@@ -654,13 +643,14 @@ private:
     virtual PseudoId customPseudoId() const
     {
         ASSERT(hasCustomStyleResolveCallbacks());
-        return NOPSEUDO;
+        return PseudoId::None;
     }
 
     WEBCORE_EXPORT void removedLastRef();
 
-    void refEventTarget() override;
-    void derefEventTarget() override;
+    void refEventTarget() final;
+    void derefEventTarget() final;
+    bool isNode() const final;
 
     void trackForDebugging();
     void materializeRareData();
@@ -671,6 +661,10 @@ private:
     void adjustStyleValidity(Style::Validity, Style::InvalidationMode);
 
     void* opaqueRootSlow() const;
+
+    static void moveShadowTreeToNewDocument(ShadowRoot&, Document& oldDocument, Document& newDocument);
+    static void moveTreeToNewScope(Node&, TreeScope& oldScope, TreeScope& newScope);
+    void moveNodeToNewDocument(Document& oldDocument, Document& newDocument);
 
     int m_refCount;
     mutable uint32_t m_nodeFlags;
@@ -684,11 +678,6 @@ private:
         RenderObject* m_renderer;
         NodeRareDataBase* m_rareData;
     } m_data { nullptr };
-
-protected:
-    bool isParsingChildrenFinished() const { return getFlag(IsParsingChildrenFinishedFlag); }
-    void setIsParsingChildrenFinished() { setFlag(IsParsingChildrenFinishedFlag); }
-    void clearIsParsingChildrenFinished() { clearFlag(IsParsingChildrenFinishedFlag); }
 };
 
 #ifndef NDEBUG
@@ -788,6 +777,14 @@ inline void Node::setHasValidStyle()
     clearFlag(StyleResolutionShouldRecompositeLayerFlag);
 }
 
+inline void Node::setTreeScopeRecursively(TreeScope& newTreeScope)
+{
+    ASSERT(!isDocumentNode());
+    ASSERT(!m_deletionHasBegun);
+    if (m_treeScope != &newTreeScope)
+        moveTreeToNewScope(*this, *m_treeScope, newTreeScope);
+}
+
 } // namespace WebCore
 
 #if ENABLE(TREE_DEBUGGING)
@@ -795,3 +792,7 @@ inline void Node::setHasValidStyle()
 void showTree(const WebCore::Node*);
 void showNodePath(const WebCore::Node*);
 #endif
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::Node)
+    static bool isType(const WebCore::EventTarget& target) { return target.isNode(); }
+SPECIALIZE_TYPE_TRAITS_END()

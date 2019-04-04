@@ -36,6 +36,8 @@
 
 namespace WebCore {
 
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderIFrame);
+
 using namespace HTMLNames;
 
 RenderIFrame::RenderIFrame(HTMLIFrameElement& element, RenderStyle&& style)
@@ -60,7 +62,7 @@ bool RenderIFrame::isInlineBlockOrInlineTable() const
 
 bool RenderIFrame::requiresLayer() const
 {
-    return RenderFrameBase::requiresLayer() || style().resize() != RESIZE_NONE;
+    return RenderFrameBase::requiresLayer() || style().resize() != Resize::None;
 }
 
 RenderView* RenderIFrame::contentRootRenderer() const
@@ -69,16 +71,27 @@ RenderView* RenderIFrame::contentRootRenderer() const
     return childFrameView ? childFrameView->frame().contentRenderer() : 0;
 }
 
+bool RenderIFrame::isFullScreenIFrame() const
+{
+    // Some authors implement fullscreen popups as out-of-flow iframes with size set to full viewport (using vw/vh units).
+    // The size used may not perfectly match the viewport size so the following heuristic uses a relaxed constraint.
+    return style().hasOutOfFlowPosition() && style().hasViewportUnits();
+}
+
 bool RenderIFrame::flattenFrame() const
 {
-    if (!settings().frameFlatteningEnabled())
+    if (view().frameView().effectiveFrameFlattening() == FrameFlattening::Disabled)
         return false;
 
     if (style().width().isFixed() && style().height().isFixed()) {
         // Do not flatten iframes with scrolling="no".
         if (iframeElement().scrollingMode() == ScrollbarAlwaysOff)
             return false;
+        // Do not flatten iframes that have zero size, as flattening might make them visible.
         if (style().width().value() <= 0 || style().height().value() <= 0)
+            return false;
+        // Do not flatten "fullscreen" iframes or they could become larger than the viewport.
+        if (view().frameView().effectiveFrameFlattening() <= FrameFlattening::EnabledForNonFullScreenIFrames && isFullScreenIFrame())
             return false;
     }
 

@@ -25,8 +25,8 @@
 
 #pragma once
 
+#include "CollectionScope.h"
 #include "TypeofType.h"
-#include "WriteBarrier.h"
 #include <wtf/Noncopyable.h>
 
 #define JSC_COMMON_STRINGS_EACH_NAME(macro) \
@@ -40,6 +40,7 @@
     macro(undefined) \
     macro(string) \
     macro(symbol) \
+    macro(bigint) \
     macro(true)
 
 namespace WTF {
@@ -103,6 +104,8 @@ public:
             return objectString();
         case TypeofType::Function:
             return functionString();
+        case TypeofType::BigInt:
+            return bigintString();
         }
 
         RELEASE_ASSERT_NOT_REACHED();

@@ -37,6 +37,7 @@ class HTMLSlotElement;
 class SlotAssignment;
 
 class ShadowRoot final : public DocumentFragment, public TreeScope {
+    WTF_MAKE_ISO_ALLOCATED(ShadowRoot);
 public:
     static Ref<ShadowRoot> create(Document& document, ShadowRootMode type)
     {
@@ -81,6 +82,9 @@ public:
 
     const Vector<Node*>* assignedNodesForSlot(const HTMLSlotElement&);
 
+    void moveShadowRootToNewParentScope(TreeScope&, Document&);
+    void moveShadowRootToNewDocument(Document&);
+
 protected:
     ShadowRoot(Document&, ShadowRootMode);
 
@@ -94,9 +98,8 @@ private:
 
     Ref<Node> cloneNodeInternal(Document&, CloningOperation) override;
 
-    Node::InsertionNotificationRequest insertedInto(ContainerNode& insertionPoint) override;
-    void removedFrom(ContainerNode& insertionPoint) override;
-    void didMoveToNewDocument(Document& oldDocument) override;
+    Node::InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
+    void removedFromAncestor(RemovalType, ContainerNode& insertionPoint) override;
 
     bool m_resetStyleInheritance { false };
     ShadowRootMode m_type { ShadowRootMode::UserAgent };

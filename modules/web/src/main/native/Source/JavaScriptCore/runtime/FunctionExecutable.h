@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009, 2010, 2013-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,10 @@
 
 #pragma once
 
+#include "ExecutableToCodeBlockEdge.h"
 #include "ScriptExecutable.h"
+#include "SourceCode.h"
+#include <wtf/Box.h>
 
 namespace JSC {
 
@@ -35,6 +38,12 @@ class FunctionExecutable final : public ScriptExecutable {
 public:
     typedef ScriptExecutable Base;
     static const unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
+
+    template<typename CellType>
+    static IsoSubspace* subspaceFor(VM& vm)
+    {
+        return &vm.functionExecutableSpace.space;
+    }
 
     static FunctionExecutable* create(
         VM& vm, const SourceCode& source, UnlinkedFunctionExecutable* unlinkedExecutable,
@@ -60,9 +69,12 @@ public:
     // for example, argumentsRegister().
     FunctionCodeBlock* eitherCodeBlock()
     {
+        ExecutableToCodeBlockEdge* edge;
         if (m_codeBlockForCall)
-            return m_codeBlockForCall.get();
-        return m_codeBlockForConstruct.get();
+            edge = m_codeBlockForCall.get();
+        else
+            edge = m_codeBlockForConstruct.get();
+        return bitwise_cast<FunctionCodeBlock*>(ExecutableToCodeBlockEdge::unwrap(edge));
     }
 
     bool isGeneratedForCall() const
@@ -72,17 +84,17 @@ public:
 
     FunctionCodeBlock* codeBlockForCall()
     {
-        return m_codeBlockForCall.get();
+        return bitwise_cast<FunctionCodeBlock*>(ExecutableToCodeBlockEdge::unwrap(m_codeBlockForCall.get()));
     }
 
     bool isGeneratedForConstruct() const
     {
-        return m_codeBlockForConstruct.get();
+        return !!m_codeBlockForConstruct;
     }
 
     FunctionCodeBlock* codeBlockForConstruct()
     {
-        return m_codeBlockForConstruct.get();
+        return bitwise_cast<FunctionCodeBlock*>(ExecutableToCodeBlockEdge::unwrap(m_codeBlockForConstruct.get()));
     }
 
     bool isGeneratedFor(CodeSpecializationKind kind)
@@ -123,7 +135,8 @@ public:
     bool isArrowFunction() const { return parseMode() == SourceParseMode::ArrowFunctionMode; }
     bool isGetter() const { return parseMode() == SourceParseMode::GetterMode; }
     bool isSetter() const { return parseMode() == SourceParseMode::SetterMode; }
-    bool isGenerator() const { return SourceParseModeSet(SourceParseMode::GeneratorBodyMode, SourceParseMode::GeneratorWrapperFunctionMode).contains(parseMode()); }
+    bool isGenerator() const { return isGeneratorParseMode(parseMode()); }
+    bool isAsyncGenerator() const { return isAsyncGeneratorParseMode(parseMode()); }
     bool isMethod() const { return parseMode() == SourceParseMode::MethodMode; }
     bool hasCallerAndArgumentsProperties() const
     {
@@ -136,7 +149,11 @@ public:
         return SourceParseModeSet(
             SourceParseMode::NormalFunctionMode,
             SourceParseMode::GeneratorBodyMode,
-            SourceParseMode::GeneratorWrapperFunctionMode
+            SourceParseMode::GeneratorWrapperFunctionMode,
+            SourceParseMode::GeneratorWrapperMethodMode,
+            SourceParseMode::AsyncGeneratorWrapperFunctionMode,
+            SourceParseMode::AsyncGeneratorWrapperMethodMode,
+            SourceParseMode::AsyncGeneratorBodyMode
         ).contains(parseMode()) || isClass();
     }
     DerivedContextType derivedContextType() const { return m_unlinkedExecutable->derivedContextType(); }
@@ -167,6 +184,18 @@ public:
     DECLARE_INFO;
 
     InferredValue* singletonFunction() { return m_singletonFunction.get(); }
+    // Cached poly proto structure for the result of constructing this executable.
+    Structure* cachedPolyProtoStructure() { return m_cachedPolyProtoStructure.get(); }
+    void setCachedPolyProtoStructure(VM& vm, Structure* structure) { m_cachedPolyProtoStructure.set(vm, this, structure); }
+
+    InlineWatchpointSet& ensurePolyProtoWatchpoint()
+    {
+        if (!m_polyProtoWatchpoint)
+            m_polyProtoWatchpoint = Box<InlineWatchpointSet>::create(IsWatched);
+        return *m_polyProtoWatchpoint;
+    }
+
+    Box<InlineWatchpointSet> sharedPolyProtoWatchpoint() const { return m_polyProtoWatchpoint; }
 
 private:
     friend class ExecutableBase;
@@ -180,10 +209,12 @@ private:
 
     unsigned m_parametersStartOffset;
     WriteBarrier<UnlinkedFunctionExecutable> m_unlinkedExecutable;
-    WriteBarrier<FunctionCodeBlock> m_codeBlockForCall;
-    WriteBarrier<FunctionCodeBlock> m_codeBlockForConstruct;
+    WriteBarrier<ExecutableToCodeBlockEdge> m_codeBlockForCall;
+    WriteBarrier<ExecutableToCodeBlockEdge> m_codeBlockForConstruct;
     RefPtr<TypeSet> m_returnStatementTypeSet;
     WriteBarrier<InferredValue> m_singletonFunction;
+    WriteBarrier<Structure> m_cachedPolyProtoStructure;
+    Box<InlineWatchpointSet> m_polyProtoWatchpoint;
 };
 
 } // namespace JSC

@@ -33,6 +33,7 @@
 namespace WebCore {
 
 class RenderVideo final : public RenderMedia {
+    WTF_MAKE_ISO_ALLOCATED(RenderVideo);
 public:
     RenderVideo(HTMLVideoElement&, RenderStyle&&);
     virtual ~RenderVideo();
@@ -70,6 +71,8 @@ private:
     void paintReplaced(PaintInfo&, const LayoutPoint&) final;
 
     void layout() final;
+
+    void visibleInViewportStateChanged() final;
 
     LayoutUnit computeReplacedLogicalWidth(ShouldComputePreferred  = ComputeActual) const final;
     LayoutUnit minimumReplacedHeight() const final;

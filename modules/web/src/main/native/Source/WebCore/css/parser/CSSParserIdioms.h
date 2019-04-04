@@ -31,9 +31,8 @@
 
 #pragma once
 
-#include "CSSParserMode.h"
+#include "CSSParserContext.h"
 #include <wtf/ASCIICType.h>
-#include <wtf/text/StringView.h>
 
 namespace WebCore {
 

@@ -31,13 +31,16 @@
 namespace WebCore {
 
 template<typename T> struct Converter<IDLCallbackFunction<T>> : DefaultConverter<IDLCallbackFunction<T>> {
+
+    static constexpr bool conversionHasSideEffects = false;
+
     template<typename ExceptionThrower = DefaultExceptionThrower>
     static RefPtr<T> convert(JSC::ExecState& state, JSC::JSValue value, JSDOMGlobalObject& globalObject, ExceptionThrower&& exceptionThrower = ExceptionThrower())
     {
         JSC::VM& vm = state.vm();
         auto scope = DECLARE_THROW_SCOPE(vm);
 
-        if (!value.isFunction()) {
+        if (!value.isFunction(vm)) {
             exceptionThrower(state, scope);
             return nullptr;
         }

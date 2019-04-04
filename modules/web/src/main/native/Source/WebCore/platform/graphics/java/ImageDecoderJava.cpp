@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,13 +21,14 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
-*/
+ */
 
 #include "config.h"
 
 #include "ImageDecoderJava.h"
 
 #include "NotImplemented.h"
+#include "SharedBuffer.h"
 #include "SharedBuffer.h"
 #include <wtf/java/JavaEnv.h>
 #include "Logging.h"
@@ -51,13 +52,17 @@ namespace WebCore {
   static ImageDecoderCounter sourceCounter;
 #endif
 
-ImageDecoder::ImageDecoder()
+ImageDecoderJava::ImageDecoderJava()
 {
 #ifndef NDEBUG
     ++ImageDecoderCounter::created;
 #endif
 
     JNIEnv* env = WebCore_GetJavaEnv();
+    if (!env) {
+        return;
+    }
+
     static jmethodID midGetImageDecoder = env->GetMethodID(
         PG_GetGraphicsManagerClass(env),
         "getImageDecoder",
@@ -71,15 +76,16 @@ ImageDecoder::ImageDecoder()
     CheckAndClearException(env);
 }
 
-ImageDecoder::~ImageDecoder()
+ImageDecoderJava::~ImageDecoderJava()
 {
 #ifndef NDEBUG
     ++ImageDecoderCounter::deleted;
 #endif
     JNIEnv* env = WebCore_GetJavaEnv();
     // [env] could be NULL in case of deallocation static BitmapImage objects
-    if (!env)
+    if (!env || !m_nativeDecoder) {
         return;
+    }
 
     static jmethodID midDestroy = env->GetMethodID(
             PG_GetGraphicsImageDecoderClass(env),
@@ -91,10 +97,12 @@ ImageDecoder::~ImageDecoder()
     CheckAndClearException(env);
 }
 
-void ImageDecoder::setData(SharedBuffer& data, bool allDataReceived)
+void ImageDecoderJava::setData(SharedBuffer& data, bool allDataReceived)
 {
-    ASSERT(m_nativeDecoder);
     JNIEnv* env = WebCore_GetJavaEnv();
+    if (!env || !m_nativeDecoder) {
+        return;
+    }
 
     static jmethodID midAddImageData = env->GetMethodID(
         PG_GetGraphicsImageDecoderClass(env),
@@ -102,12 +110,13 @@ void ImageDecoder::setData(SharedBuffer& data, bool allDataReceived)
         "([B)V");
     ASSERT(midAddImageData);
 
-    const char* segment;
-    while (unsigned length = data.getSomeData(segment, m_receivedDataSize)) {
+    while (m_receivedDataSize < data.size()) {
+        const auto& someData = data.getSomeData(m_receivedDataSize);
+        unsigned length = someData.size();
         JLByteArray jArray(env->NewByteArray(length));
         if (jArray && !CheckAndClearException(env)) {
             // not OOME in Java
-            env->SetByteArrayRegion(jArray, 0, length, (const jbyte*)segment);
+            env->SetByteArrayRegion(jArray, 0, length, (const jbyte*)someData.data());
             env->CallVoidMethod(m_nativeDecoder, midAddImageData, (jbyteArray)jArray);
             CheckAndClearException(env);
         }
@@ -121,10 +130,12 @@ void ImageDecoder::setData(SharedBuffer& data, bool allDataReceived)
     }
 }
 
-bool ImageDecoder::isSizeAvailable() const
+bool ImageDecoderJava::isSizeAvailable() const
 {
-    ASSERT(m_nativeDecoder);
     JNIEnv* env = WebCore_GetJavaEnv();
+    if (!env || !m_nativeDecoder) {
+        return { };
+    }
 
     static jmethodID midGetImageSize = env->GetMethodID(
         PG_GetGraphicsImageDecoderClass(env),
@@ -144,10 +155,12 @@ bool ImageDecoder::isSizeAvailable() const
     return m_size.width();
 }
 
-size_t ImageDecoder::frameCount() const
+size_t ImageDecoderJava::frameCount() const
 {
     JNIEnv* env = WebCore_GetJavaEnv();
-    ASSERT(m_nativeDecoder);
+    if (!env || !m_nativeDecoder) {
+        return { };
+    }
 
     static jmethodID midGetFrameCount = env->GetMethodID(
         PG_GetGraphicsImageDecoderClass(env),
@@ -163,10 +176,12 @@ size_t ImageDecoder::frameCount() const
         : count;
 }
 
-NativeImagePtr ImageDecoder::createFrameImageAtIndex(size_t idx, SubsamplingLevel, const std::optional<IntSize>&)
+NativeImagePtr ImageDecoderJava::createFrameImageAtIndex(size_t idx, SubsamplingLevel, const DecodingOptions&)
 {
     JNIEnv* env = WebCore_GetJavaEnv();
-    ASSERT(m_nativeDecoder);
+    if (!env || !m_nativeDecoder) {
+        return { };
+    }
 
     static jmethodID midGetFrame = env->GetMethodID(
         PG_GetGraphicsImageDecoderClass(env),
@@ -183,9 +198,12 @@ NativeImagePtr ImageDecoder::createFrameImageAtIndex(size_t idx, SubsamplingLeve
     return RQRef::create(frame);
 }
 
-float ImageDecoder::frameDurationAtIndex(size_t idx) const
+WTF::Seconds ImageDecoderJava::frameDurationAtIndex(size_t idx) const
 {
     JNIEnv* env = WebCore_GetJavaEnv();
+    if (!env || !m_nativeDecoder) {
+        return { };
+    }
     static jmethodID midGetDuration = env->GetMethodID(
         PG_GetGraphicsImageDecoderClass(env),
         "getFrameDuration",
@@ -195,17 +213,28 @@ float ImageDecoder::frameDurationAtIndex(size_t idx) const
                         m_nativeDecoder,
                         midGetDuration,
                         idx);
-    return duration / 1000.0f;
+    return WTF::Seconds::fromMilliseconds(duration);
 }
 
-IntSize ImageDecoder::size() const
+EncodedDataStatus ImageDecoderJava::encodedDataStatus() const
+{
+    if (isSizeAvailable())
+        m_encodedDataStatus = EncodedDataStatus::SizeAvailable;
+
+    return m_encodedDataStatus;
+}
+
+IntSize ImageDecoderJava::size() const
 {
     return m_size;
 }
 
-IntSize ImageDecoder::frameSizeAtIndex(size_t idx, SubsamplingLevel) const
+IntSize ImageDecoderJava::frameSizeAtIndex(size_t idx, SubsamplingLevel) const
 {
     JNIEnv* env = WebCore_GetJavaEnv();
+    if (!env || !m_nativeDecoder) {
+        return { };
+    }
     static jmethodID midGetFrameSize = env->GetMethodID(
         PG_GetGraphicsImageDecoderClass(env),
         "getFrameSize",
@@ -226,21 +255,24 @@ IntSize ImageDecoder::frameSizeAtIndex(size_t idx, SubsamplingLevel) const
     return frameSize;
 }
 
-bool ImageDecoder::frameAllowSubsamplingAtIndex(size_t) const
+bool ImageDecoderJava::frameAllowSubsamplingAtIndex(size_t) const
 {
     notImplemented();
     return true;
 }
 
-bool ImageDecoder::frameHasAlphaAtIndex(size_t) const
+bool ImageDecoderJava::frameHasAlphaAtIndex(size_t) const
 {
     // FIXME-java: Read it from ImageMetadata
     return true;
 }
 
-bool ImageDecoder::frameIsCompleteAtIndex(size_t idx) const
+bool ImageDecoderJava::frameIsCompleteAtIndex(size_t idx) const
 {
     JNIEnv* env = WebCore_GetJavaEnv();
+    if (!env || !m_nativeDecoder) {
+        return { };
+    }
     static jmethodID midGetFrameIsComplete = env->GetMethodID(
         PG_GetGraphicsImageDecoderClass(env),
         "getFrameCompleteStatus",
@@ -251,21 +283,23 @@ bool ImageDecoder::frameIsCompleteAtIndex(size_t idx) const
             idx);
 }
 
-unsigned ImageDecoder::frameBytesAtIndex(size_t idx, SubsamplingLevel samplingLevel) const
+unsigned ImageDecoderJava::frameBytesAtIndex(size_t idx, SubsamplingLevel samplingLevel) const
 {
     auto frameSize = frameSizeAtIndex(idx, samplingLevel);
     return (frameSize.area() * 4).unsafeGet();
 }
 
-RepetitionCount ImageDecoder::repetitionCount() const
+RepetitionCount ImageDecoderJava::repetitionCount() const
 {
     return RepetitionCountInfinite;
 }
 
-String ImageDecoder::filenameExtension() const
+String ImageDecoderJava::filenameExtension() const
 {
     JNIEnv* env = WebCore_GetJavaEnv();
-    ASSERT(m_nativeDecoder);
+    if (!env || !m_nativeDecoder) {
+        return { };
+    }
 
     static jmethodID midGetFileExtention = env->GetMethodID(
         PG_GetGraphicsImageDecoderClass(env),
@@ -281,19 +315,19 @@ String ImageDecoder::filenameExtension() const
     return String(env, ext);
 }
 
-std::optional<IntPoint> ImageDecoder::hotSpot() const
+std::optional<IntPoint> ImageDecoderJava::hotSpot() const
 {
     notImplemented();
-    return {};
+    return { };
 }
 
-ImageOrientation ImageDecoder::frameOrientationAtIndex(size_t) const
+ImageOrientation ImageDecoderJava::frameOrientationAtIndex(size_t) const
 {
     notImplemented();
     return ImageOrientation(DefaultImageOrientation);
 }
 
-size_t ImageDecoder::bytesDecodedToDetermineProperties()
+size_t ImageDecoderJava::bytesDecodedToDetermineProperties() const
 {
     // Set to match value used for CoreGraphics.
     return 13088;

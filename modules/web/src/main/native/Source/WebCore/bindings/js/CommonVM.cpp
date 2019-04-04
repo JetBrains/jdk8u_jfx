@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,12 +26,14 @@
 #include "config.h"
 #include "CommonVM.h"
 
+#include "DOMWindow.h"
+#include "DeprecatedGlobalSettings.h"
+#include "Frame.h"
 #include "ScriptController.h"
-#include "Settings.h"
 #include "WebCoreJSClientData.h"
-#include <heap/HeapInlines.h>
-#include "heap/MachineStackMarker.h"
-#include <runtime/VM.h>
+#include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/MachineStackMarker.h>
+#include <JavaScriptCore/VM.h>
 #include <wtf/MainThread.h>
 #include <wtf/text/AtomicString.h>
 
@@ -39,32 +41,46 @@
 #include "WebCoreThreadInternal.h"
 #endif
 
-using namespace JSC;
-
 namespace WebCore {
 
-VM* g_commonVMOrNull;
+JSC::VM* g_commonVMOrNull;
 
-VM& commonVMSlow()
+JSC::VM& commonVMSlow()
 {
     ASSERT(isMainThread());
     ASSERT(!g_commonVMOrNull);
 
     ScriptController::initializeThreading();
-    g_commonVMOrNull = &VM::createLeaked(LargeHeap).leakRef();
-    g_commonVMOrNull->heap.acquireAccess(); // At any time, we may do things that affect the GC.
-#if !PLATFORM(IOS)
-    g_commonVMOrNull->setExclusiveThread(std::this_thread::get_id());
-#else
-    g_commonVMOrNull->heap.setRunLoop(WebThreadRunLoop());
-    g_commonVMOrNull->heap.machineThreads().addCurrentThread();
+
+    auto& vm = JSC::VM::create(JSC::LargeHeap).leakRef();
+
+    g_commonVMOrNull = &vm;
+
+    vm.heap.acquireAccess(); // At any time, we may do things that affect the GC.
+
+#if PLATFORM(IOS)
+    vm.setRunLoop(WebThreadRunLoop());
+    vm.heap.machineThreads().addCurrentThread();
 #endif
 
-    g_commonVMOrNull->setGlobalConstRedeclarationShouldThrow(Settings::globalConstRedeclarationShouldThrow());
+    vm.setGlobalConstRedeclarationShouldThrow(DeprecatedGlobalSettings::globalConstRedeclarationShouldThrow());
 
-    JSVMClientData::initNormalWorld(g_commonVMOrNull);
+    JSVMClientData::initNormalWorld(&vm);
 
-    return *g_commonVMOrNull;
+    return vm;
+}
+
+Frame* lexicalFrameFromCommonVM()
+{
+    if (auto* topCallFrame = commonVM().topCallFrame) {
+        if (auto* globalObject = JSC::jsCast<JSDOMGlobalObject*>(topCallFrame->lexicalGlobalObject())) {
+            if (auto* window = JSC::jsDynamicCast<JSDOMWindow*>(commonVM(), globalObject)) {
+                if (auto* frame = window->wrapped().frame())
+                    return frame;
+            }
+        }
+    }
+    return nullptr;
 }
 
 void addImpureProperty(const AtomicString& propertyName)

@@ -32,7 +32,6 @@
 
 #if ENABLE(INPUT_TYPE_COLOR)
 
-#include "ColorChooser.h"
 #include "IntRect.h"
 #include <wtf/Vector.h>
 
@@ -42,7 +41,7 @@ class Color;
 
 class ColorChooserClient {
 public:
-    virtual ~ColorChooserClient() { }
+    virtual ~ColorChooserClient() = default;
 
     virtual void didChooseColor(const Color&) = 0;
     virtual void didEndChooser() = 0;

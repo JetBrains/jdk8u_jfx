@@ -26,22 +26,19 @@
 #include "config.h"
 #include "PasteboardWriterData.h"
 
+#include "SharedBuffer.h"
+
 namespace WebCore {
 
-PasteboardWriterData::PasteboardWriterData()
-{
-}
+PasteboardWriterData::PasteboardWriterData() = default;
+PasteboardWriterData::~PasteboardWriterData() = default;
 
-PasteboardWriterData::~PasteboardWriterData()
-{
-}
+PasteboardWriterData::WebContent::WebContent() = default;
+PasteboardWriterData::WebContent::~WebContent() = default;
 
 bool PasteboardWriterData::isEmpty() const
 {
-    if (m_plainText)
-        return false;
-
-    return true;
+    return !m_plainText && !m_url && !m_webContent;
 }
 
 void PasteboardWriterData::setPlainText(PlainText plainText)
@@ -49,6 +46,20 @@ void PasteboardWriterData::setPlainText(PlainText plainText)
     ASSERT(!m_plainText);
 
     m_plainText = WTFMove(plainText);
+}
+
+void PasteboardWriterData::setURL(URL url)
+{
+    ASSERT(!m_url);
+
+    m_url = WTFMove(url);
+}
+
+void PasteboardWriterData::setWebContent(WebContent webContent)
+{
+    ASSERT(!m_webContent);
+
+    m_webContent = webContent;
 }
 
 }

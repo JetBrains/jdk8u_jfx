@@ -27,7 +27,7 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-#include "MediaConstraintsImpl.h"
+#include "MediaConstraints.h"
 
 namespace WebCore {
 
@@ -171,6 +171,8 @@ static MediaTrackConstraintSetMap convertToInternalForm(ConstraintSetType setTyp
     // FIXME: add channelCount
     set(result, setType, "deviceId", MediaConstraintType::DeviceId, constraintSet.deviceId);
     set(result, setType, "groupId", MediaConstraintType::GroupId, constraintSet.groupId);
+    set(result, setType, "displaySurface", MediaConstraintType::DisplaySurface, constraintSet.displaySurface);
+    set(result, setType, "logicalSurface", MediaConstraintType::LogicalSurface, constraintSet.logicalSurface);
     return result;
 }
 
@@ -190,9 +192,13 @@ static Vector<MediaTrackConstraintSetMap> convertAdvancedToInternalForm(const st
     return convertAdvancedToInternalForm(optionalVector.value());
 }
 
-Ref<MediaConstraintsImpl> createMediaConstraintsImpl(const MediaTrackConstraints& constraints)
+MediaConstraints createMediaConstraints(const MediaTrackConstraints& trackConstraints)
 {
-    return MediaConstraintsImpl::create(convertToInternalForm(ConstraintSetType::Mandatory, constraints), convertAdvancedToInternalForm(constraints.advanced), true);
+    MediaConstraints constraints;
+    constraints.mandatoryConstraints = convertToInternalForm(ConstraintSetType::Mandatory, trackConstraints);
+    constraints.advancedConstraints = convertAdvancedToInternalForm(trackConstraints.advanced);
+    constraints.isValid = true;
+    return constraints;
 }
 
 }

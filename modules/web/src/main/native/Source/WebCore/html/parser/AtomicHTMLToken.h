@@ -78,7 +78,7 @@ private:
 
     String m_data; // Comment
 
-    // We don't want to copy the the characters out of the HTMLToken, so we keep a pointer to its buffer instead.
+    // We don't want to copy the characters out of the HTMLToken, so we keep a pointer to its buffer instead.
     // This buffer is owned by the HTMLToken and causes a lifetime dependence between these objects.
     // FIXME: Add a mechanism for "internalizing" the characters when the HTMLToken is destroyed.
     const UChar* m_externalCharacters; // Character
@@ -206,7 +206,7 @@ inline void AtomicHTMLToken::initializeAttributes(const HTMLToken::AttributeList
 
         // FIXME: This is N^2 for the number of attributes.
         if (!hasAttribute(m_attributes, localName))
-            m_attributes.uncheckedAppend(Attribute(QualifiedName(nullAtom, localName, nullAtom), AtomicString(attribute.value)));
+            m_attributes.uncheckedAppend(Attribute(QualifiedName(nullAtom(), localName, nullAtom()), AtomicString(attribute.value)));
     }
 }
 

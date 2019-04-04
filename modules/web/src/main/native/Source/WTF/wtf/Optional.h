@@ -31,7 +31,7 @@
 // ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-// Copied from https://github.com/akrzemi1/Optional (727c729dd1d9f06f225868280e50154594d7e59d)
+// Copied from https://github.com/akrzemi1/Optional (8456c3923776b33b4ae852734273fe934c3e4e61)
 
 // Modified to make it compile with exceptions disabled.
 
@@ -41,7 +41,6 @@
 # include <type_traits>
 # include <initializer_list>
 # include <cassert>
-# include <functional>
 # include <string>
 # include <stdexcept>
 # include <wtf/Assertions.h>
@@ -113,14 +112,6 @@
 #   define OPTIONAL_HAS_CONSTEXPR_INIT_LIST 0
 #   define OPTIONAL_CONSTEXPR_INIT_LIST
 # endif
-
-// FIXME: To make the result of value() type consistent among the compilers, we now intentionally disables move accessors.
-#   define OPTIONAL_HAS_MOVE_ACCESSORS 0
-// # if defined TR2_OPTIONAL_CLANG_3_5_AND_HIGHTER_ && (defined __cplusplus) && (__cplusplus != 201103L)
-// #   define OPTIONAL_HAS_MOVE_ACCESSORS 1
-// # else
-// #   define OPTIONAL_HAS_MOVE_ACCESSORS 0
-// # endif
 
 # // In C++11 constexpr implies const, so we need to make non-const members also non-constexpr
 # if (defined __cplusplus) && (__cplusplus == 201103L)
@@ -240,12 +231,6 @@ template <class T> inline constexpr typename std::remove_reference<T>::type&& co
     return static_cast<typename std::remove_reference<T>::type&&>(t);
 }
 
-#if defined NDEBUG
-# define TR2_OPTIONAL_ASSERTED_EXPRESSION(CHECK, EXPR) (EXPR)
-#else
-# define TR2_OPTIONAL_ASSERTED_EXPRESSION(CHECK, EXPR) ((CHECK) ? (EXPR) : ([]{assert(!#CHECK);}(), (EXPR)))
-#endif
-
 
 // static_addressof: a constexpr version of addressof
 template <typename T>
@@ -281,10 +266,6 @@ constexpr U convert(U v) { return v; }
 
 
 constexpr struct trivial_init_t{} trivial_init{};
-
-
-// 20.5.6, In-place construction
-constexpr struct in_place_t{} in_place{};
 
 
 // 20.5.7, Disengaged state indicator
@@ -401,13 +382,8 @@ class optional : private OptionalBase<T>
 
 # if OPTIONAL_HAS_THIS_RVALUE_REFS == 1
   constexpr const T& contained_val() const& { return OptionalBase<T>::storage_.value_; }
-#   if OPTIONAL_HAS_MOVE_ACCESSORS == 1
   OPTIONAL_MUTABLE_CONSTEXPR T&& contained_val() && { return std::move(OptionalBase<T>::storage_.value_); }
   OPTIONAL_MUTABLE_CONSTEXPR T& contained_val() & { return OptionalBase<T>::storage_.value_; }
-#   else
-  T& contained_val() & { return OptionalBase<T>::storage_.value_; }
-  T&& contained_val() && { return std::move(OptionalBase<T>::storage_.value_); }
-#   endif
 # else
   constexpr const T& contained_val() const { return OptionalBase<T>::storage_.value_; }
   T& contained_val() { return OptionalBase<T>::storage_.value_; }
@@ -537,82 +513,47 @@ public:
   // 20.5.4.5, Observers
 
   explicit constexpr operator bool() const __NOEXCEPT { return initialized(); }
+  constexpr bool has_value() const __NOEXCEPT { return initialized(); }
 
   constexpr T const* operator ->() const {
-    return TR2_OPTIONAL_ASSERTED_EXPRESSION(initialized(), dataptr());
+    RELEASE_ASSERT_UNDER_CONSTEXPR_CONTEXT(initialized());
+    return dataptr();
   }
 
-# if OPTIONAL_HAS_MOVE_ACCESSORS == 1
-
   OPTIONAL_MUTABLE_CONSTEXPR T* operator ->() {
-    // FIXME: We need to offer special assert function that can be used under the contexpr context.
-    // CONSTEXPR_ASSERT(initialized());
+    RELEASE_ASSERT_UNDER_CONSTEXPR_CONTEXT(initialized());
     return dataptr();
   }
 
   constexpr T const& operator *() const& {
-    return TR2_OPTIONAL_ASSERTED_EXPRESSION(initialized(), contained_val());
+    RELEASE_ASSERT_UNDER_CONSTEXPR_CONTEXT(initialized());
+    return contained_val();
   }
 
   OPTIONAL_MUTABLE_CONSTEXPR T& operator *() & {
-    // FIXME: We need to offer special assert function that can be used under the contexpr context.
-    // CONSTEXPR_ASSERT(initialized());
+    RELEASE_ASSERT_UNDER_CONSTEXPR_CONTEXT(initialized());
     return contained_val();
   }
 
   OPTIONAL_MUTABLE_CONSTEXPR T&& operator *() && {
-    // FIXME: We need to offer special assert function that can be used under the contexpr context.
-    // CONSTEXPR_ASSERT(initialized());
+    RELEASE_ASSERT_UNDER_CONSTEXPR_CONTEXT(initialized());
     return detail_::constexpr_move(contained_val());
   }
 
   constexpr T const& value() const& {
-    // FIXME: We need to offer special assert function that can be used under the contexpr context.
-    // return initialized() ? contained_val() : (throw bad_optional_access("bad optional access"), contained_val());
+    RELEASE_ASSERT_UNDER_CONSTEXPR_CONTEXT(initialized());
     return contained_val();
   }
 
   OPTIONAL_MUTABLE_CONSTEXPR T& value() & {
-    // FIXME: We need to offer special assert function that can be used under the contexpr context.
-    // return initialized() ? contained_val() : (throw bad_optional_access("bad optional access"), contained_val());
+    RELEASE_ASSERT_UNDER_CONSTEXPR_CONTEXT(initialized());
     return contained_val();
   }
 
   OPTIONAL_MUTABLE_CONSTEXPR T&& value() && {
-    // FIXME: We need to offer special assert function that can be used under the contexpr context.
-    // if (!initialized()) __THROW_EXCEPTION(bad_optional_access("bad optional access"));
+    RELEASE_ASSERT_UNDER_CONSTEXPR_CONTEXT(initialized());
     return std::move(contained_val());
   }
-
-# else
-
-  T* operator ->() {
-    assert (initialized());
-    return dataptr();
-  }
-
-  constexpr T const& operator *() const {
-    return TR2_OPTIONAL_ASSERTED_EXPRESSION(initialized(), contained_val());
-  }
-
-  T& operator *() {
-    assert (initialized());
-    return contained_val();
-  }
-
-  constexpr T const& value() const {
-    // FIXME: We need to offer special assert function that can be used under the contexpr context.
-    // return initialized() ? contained_val() : (throw bad_optional_access("bad optional access"), contained_val());
-    return contained_val();
-  }
-
-  T& value() {
-    // FIXME: We need to offer special assert function that can be used under the contexpr context.
-    // return initialized() ? contained_val() : (throw bad_optional_access("bad optional access"), contained_val());
-    return contained_val();
-  }
-
-# endif
 
 # if OPTIONAL_HAS_THIS_RVALUE_REFS == 1
 
@@ -622,23 +563,11 @@ public:
     return *this ? **this : detail_::convert<T>(detail_::constexpr_forward<V>(v));
   }
 
-#   if OPTIONAL_HAS_MOVE_ACCESSORS == 1
-
   template <class V>
   OPTIONAL_MUTABLE_CONSTEXPR T value_or(V&& v) &&
   {
     return *this ? detail_::constexpr_move(const_cast<optional<T>&>(*this).contained_val()) : detail_::convert<T>(detail_::constexpr_forward<V>(v));
   }
-
-#   else
-
-  template <class V>
-  T value_or(V&& v) &&
-  {
-    return *this ? detail_::constexpr_move(const_cast<optional<T>&>(*this).contained_val()) : detail_::convert<T>(detail_::constexpr_forward<V>(v));
-  }
-
-#   endif
 
 # else
 
@@ -650,6 +579,8 @@ public:
 
 # endif
 
+  // 20.6.3.6, modifiers
+  void reset() __NOEXCEPT { clear(); }
 };
 
 
@@ -730,20 +661,25 @@ public:
 
   // 20.5.5.3, observers
   constexpr T* operator->() const {
-    return TR2_OPTIONAL_ASSERTED_EXPRESSION(ref, ref);
+    RELEASE_ASSERT_UNDER_CONSTEXPR_CONTEXT(ref);
+    return ref;
   }
 
   constexpr T& operator*() const {
-    return TR2_OPTIONAL_ASSERTED_EXPRESSION(ref, *ref);
+    RELEASE_ASSERT_UNDER_CONSTEXPR_CONTEXT(ref);
+    return *ref;
   }
 
   constexpr T& value() const {
-    // FIXME: We need to offer special assert function that can be used under the contexpr context.
-    // return ref ? *ref : (throw bad_optional_access("bad optional access"), *ref);
+    RELEASE_ASSERT_UNDER_CONSTEXPR_CONTEXT(ref());
     return *ref;
   }
 
   explicit constexpr operator bool() const __NOEXCEPT {
+    return ref != nullptr;
+  }
+
+  constexpr bool has_value() const __NOEXCEPT {
     return ref != nullptr;
   }
 
@@ -752,6 +688,9 @@ public:
   {
     return *this ? **this : detail_::convert<typename std::decay<T>::type>(detail_::constexpr_forward<V>(v));
   }
+
+  // x.x.x.x, modifiers
+  void reset() __NOEXCEPT { ref = nullptr; }
 };
 
 
@@ -1064,20 +1003,6 @@ constexpr optional<X&> make_optional(std::reference_wrapper<X> v)
 
 } // namespace std
 
-namespace WTF {
-
-// -- WebKit Additions --
-template <class OptionalType, class Callback>
-ALWAYS_INLINE
-auto valueOrCompute(OptionalType optional, Callback callback) -> typename OptionalType::value_type
-{
-    if (optional)
-        return *optional;
-    return callback();
-}
-
-} // namespace WTF
-
 namespace std
 {
   template <typename T>
@@ -1104,6 +1029,19 @@ namespace std
 }
 
 # undef TR2_OPTIONAL_REQUIRES
-# undef TR2_OPTIONAL_ASSERTED_EXPRESSION
+
+namespace WTF {
+
+// -- WebKit Additions --
+template <class OptionalType, class Callback>
+ALWAYS_INLINE
+auto valueOrCompute(OptionalType optional, Callback callback) -> typename OptionalType::value_type
+{
+    if (optional)
+        return *optional;
+    return callback();
+}
+
+} // namespace WTF
 
 using WTF::valueOrCompute;
