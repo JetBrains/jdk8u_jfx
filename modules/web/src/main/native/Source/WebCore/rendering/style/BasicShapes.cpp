@@ -52,15 +52,13 @@ void BasicShapeCenterCoordinate::updateComputedLength()
         m_computedLength = m_length.isUndefined() ? Length(0, Fixed) : m_length;
         return;
     }
+
     if (m_length.isUndefined()) {
         m_computedLength = Length(100, Percent);
         return;
     }
 
-    auto lhs = std::make_unique<CalcExpressionLength>(Length(100, Percent));
-    auto rhs = std::make_unique<CalcExpressionLength>(m_length);
-    auto op = std::make_unique<CalcExpressionBinaryOperation>(WTFMove(lhs), WTFMove(rhs), CalcSubtract);
-    m_computedLength = Length(CalculationValue::create(WTFMove(op), ValueRangeAll));
+    m_computedLength = convertTo100PercentMinusLength(m_length);
 }
 
 struct SVGPathTranslatedByteStream {
@@ -75,8 +73,7 @@ struct SVGPathTranslatedByteStream {
 
     Path path() const
     {
-        Path path;
-        buildPathFromByteStream(m_rawStream, path);
+        Path path = buildPathFromByteStream(m_rawStream);
         path.translate(toFloatSize(m_offset));
         return path;
     }

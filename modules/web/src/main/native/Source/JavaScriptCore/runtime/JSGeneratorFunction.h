@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 Yusuke Suzuki <utatane.tea@gmail.com>.
+ * Copyright (C) 2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,9 +32,8 @@ namespace JSC {
 
 class JSGlobalObject;
 class LLIntOffsetsExtractor;
-class LLIntDesiredOffsets;
 
-class JSGeneratorFunction : public JSFunction {
+class JSGeneratorFunction final : public JSFunction {
     friend class JIT;
 #if ENABLE(DFG_JIT)
     friend class DFG::SpeculativeJIT;
@@ -66,13 +66,19 @@ public:
 
     const static unsigned StructureFlags = Base::StructureFlags;
 
+    template<typename CellType>
+    static IsoSubspace* subspaceFor(VM& vm)
+    {
+        return &vm.generatorFunctionSpace;
+    }
+
     DECLARE_EXPORT_INFO;
 
     static JSGeneratorFunction* create(VM&, FunctionExecutable*, JSScope*);
     static JSGeneratorFunction* create(VM&, FunctionExecutable*, JSScope*, Structure*);
     static JSGeneratorFunction* createWithInvalidatedReallocationWatchpoint(VM&, FunctionExecutable*, JSScope*);
 
-    static size_t allocationSize(size_t inlineCapacity)
+    static size_t allocationSize(Checked<size_t> inlineCapacity)
     {
         ASSERT_UNUSED(inlineCapacity, !inlineCapacity);
         return sizeof(JSGeneratorFunction);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,9 +32,9 @@
 namespace JSC {
 
 template<typename Block, typename Instruction, typename Function>
-inline void extractStoredJumpTargetsForBytecodeOffset(Block* codeBlock, Interpreter* interpreter, Instruction* instructionsBegin, unsigned bytecodeOffset, Function function)
+inline void extractStoredJumpTargetsForBytecodeOffset(Block* codeBlock, Instruction* instructionsBegin, unsigned bytecodeOffset, Function function)
 {
-    OpcodeID opcodeID = interpreter->getOpcodeID(instructionsBegin[bytecodeOffset]);
+    OpcodeID opcodeID = Interpreter::getOpcodeID(instructionsBegin[bytecodeOffset]);
     Instruction* current = instructionsBegin + bytecodeOffset;
     switch (opcodeID) {
     case op_jmp:
@@ -55,6 +55,12 @@ inline void extractStoredJumpTargetsForBytecodeOffset(Block* codeBlock, Interpre
     case op_jnlesseq:
     case op_jngreater:
     case op_jngreatereq:
+    case op_jeq:
+    case op_jneq:
+    case op_jstricteq:
+    case op_jnstricteq:
+    case op_jbelow:
+    case op_jbeloweq:
         function(current[3].u.operand);
         break;
     case op_switch_imm:

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 #define StringConcatenate_h
 
 #include <string.h>
+#include <wtf/CheckedArithmetic.h>
 
 #ifndef AtomicString_h
 #include <wtf/text/AtomicString.h>
@@ -44,13 +45,13 @@
 
 namespace WTF {
 
-template<typename StringType>
+template<typename StringType, typename>
 class StringTypeAdapter;
 
 template<>
-class StringTypeAdapter<char> {
+class StringTypeAdapter<char, void> {
 public:
-    StringTypeAdapter<char>(char character)
+    StringTypeAdapter(char character)
         : m_character(character)
     {
     }
@@ -75,9 +76,9 @@ private:
 };
 
 template<>
-class StringTypeAdapter<UChar> {
+class StringTypeAdapter<UChar, void> {
 public:
-    StringTypeAdapter<UChar>(UChar character)
+    StringTypeAdapter(UChar character)
         : m_character(character)
     {
     }
@@ -103,12 +104,14 @@ private:
 };
 
 template<>
-class StringTypeAdapter<const LChar*> {
+class StringTypeAdapter<const LChar*, void> {
 public:
     StringTypeAdapter(const LChar* characters)
         : m_characters(characters)
-        , m_length(strlen(reinterpret_cast<const char*>(characters)))
     {
+        size_t length = strlen(reinterpret_cast<const char*>(characters));
+        RELEASE_ASSERT(length <= String::MaxLength);
+        m_length = static_cast<unsigned>(length);
     }
 
     unsigned length() const { return m_length; }
@@ -132,19 +135,16 @@ private:
 };
 
 template<>
-class StringTypeAdapter<const UChar*> {
+class StringTypeAdapter<const UChar*, void> {
 public:
     StringTypeAdapter(const UChar* characters)
         : m_characters(characters)
     {
-        unsigned length = 0;
+        size_t length = 0;
         while (m_characters[length])
             ++length;
-
-        if (length > std::numeric_limits<unsigned>::max()) // FIXME this is silly https://bugs.webkit.org/show_bug.cgi?id=165790
-            CRASH();
-
-        m_length = length;
+        RELEASE_ASSERT(length <= String::MaxLength);
+        m_length = static_cast<unsigned>(length);
     }
 
     unsigned length() const { return m_length; }
@@ -168,34 +168,34 @@ private:
 };
 
 template<>
-class StringTypeAdapter<const char*> : public StringTypeAdapter<const LChar*> {
+class StringTypeAdapter<const char*, void> : public StringTypeAdapter<const LChar*, void> {
 public:
     StringTypeAdapter(const char* characters)
-        : StringTypeAdapter<const LChar*>(reinterpret_cast<const LChar*>(characters))
+        : StringTypeAdapter<const LChar*, void>(reinterpret_cast<const LChar*>(characters))
     {
     }
 };
 
 template<>
-class StringTypeAdapter<char*> : public StringTypeAdapter<const char*> {
+class StringTypeAdapter<char*, void> : public StringTypeAdapter<const char*, void> {
 public:
     StringTypeAdapter(const char* characters)
-        : StringTypeAdapter<const char*>(characters)
+        : StringTypeAdapter<const char*, void>(characters)
     {
     }
 };
 
 template<>
-class StringTypeAdapter<ASCIILiteral> : public StringTypeAdapter<const char*> {
+class StringTypeAdapter<ASCIILiteral, void> : public StringTypeAdapter<const char*, void> {
 public:
     StringTypeAdapter(ASCIILiteral characters)
-        : StringTypeAdapter<const char*>(characters)
+        : StringTypeAdapter<const char*, void>(characters)
     {
     }
 };
 
 template<>
-class StringTypeAdapter<Vector<char>> {
+class StringTypeAdapter<Vector<char>, void> {
 public:
     StringTypeAdapter(const Vector<char>& vector)
         : m_vector(vector)
@@ -222,9 +222,9 @@ private:
 };
 
 template<>
-class StringTypeAdapter<String> {
+class StringTypeAdapter<String, void> {
 public:
-    StringTypeAdapter<String>(const String& string)
+    StringTypeAdapter(const String& string)
         : m_string(string)
     {
     }
@@ -251,31 +251,13 @@ private:
 };
 
 template<>
-class StringTypeAdapter<AtomicString> : public StringTypeAdapter<String> {
+class StringTypeAdapter<AtomicString, void> : public StringTypeAdapter<String, void> {
 public:
     StringTypeAdapter(const AtomicString& string)
-        : StringTypeAdapter<String>(string.string())
+        : StringTypeAdapter<String, void>(string.string())
     {
     }
 };
-
-inline void sumWithOverflow(bool& overflow, unsigned& total, unsigned addend)
-{
-    unsigned oldTotal = total;
-    total = oldTotal + addend;
-    if (total < oldTotal)
-        overflow = true;
-}
-
-template<typename... Unsigned>
-inline void sumWithOverflow(bool& overflow, unsigned& total, unsigned addend, Unsigned ...addends)
-{
-    unsigned oldTotal = total;
-    total = oldTotal + addend;
-    if (total < oldTotal)
-        overflow = true;
-    sumWithOverflow(overflow, total, addends...);
-}
 
 template<typename Adapter>
 inline bool are8Bit(Adapter adapter)
@@ -305,12 +287,13 @@ inline void makeStringAccumulator(ResultType* result, Adapter adapter, Adapters 
 template<typename StringTypeAdapter, typename... StringTypeAdapters>
 String tryMakeStringFromAdapters(StringTypeAdapter adapter, StringTypeAdapters ...adapters)
 {
-    bool overflow = false;
-    unsigned length = adapter.length();
-    sumWithOverflow(overflow, length, adapters.length()...);
-    if (overflow)
+    static_assert(String::MaxLength == std::numeric_limits<int32_t>::max(), "");
+    auto sum = checkedSum<int32_t>(adapter.length(), adapters.length()...);
+    if (sum.hasOverflowed())
         return String();
 
+    unsigned length = sum.unsafeGet();
+    ASSERT(length <= String::MaxLength);
     if (are8Bit(adapter, adapters...)) {
         LChar* buffer;
         RefPtr<StringImpl> resultImpl = StringImpl::tryCreateUninitialized(length, buffer);

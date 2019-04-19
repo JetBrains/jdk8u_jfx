@@ -32,7 +32,6 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-#include "FontCascade.h"
 #include "ImageBuffer.h"
 #include "MockRealtimeMediaSource.h"
 #include <wtf/RunLoop.h>
@@ -42,21 +41,22 @@ namespace WebCore {
 class MockRealtimeAudioSource : public MockRealtimeMediaSource {
 public:
 
-    static RefPtr<MockRealtimeAudioSource> create(const String&, const MediaConstraints*);
-    static RefPtr<MockRealtimeAudioSource> createMuted(const String& name);
+    static CaptureSourceOrError create(const String& deviceID, const String& name, const MediaConstraints*);
 
-    virtual ~MockRealtimeAudioSource() = default;
+    static AudioCaptureFactory& factory();
+
+    virtual ~MockRealtimeAudioSource();
 
 protected:
-    MockRealtimeAudioSource(const String& name = ASCIILiteral("Mock audio device"));
+    MockRealtimeAudioSource(const String& deviceID, const String& name);
 
     void startProducingData() final;
     void stopProducingData() final;
 
-    virtual void render(double) { }
+    virtual void render(Seconds) { }
 
-    double elapsedTime();
-    static int renderInterval() { return 60; }
+    Seconds elapsedTime();
+    static Seconds renderInterval() { return 60_ms; }
 
 private:
 
@@ -71,10 +71,15 @@ private:
 
     void tick();
 
+    bool isCaptureSource() const final { return true; }
+
+    void delaySamples(Seconds) final;
+
     RunLoop::Timer<MockRealtimeAudioSource> m_timer;
-    double m_startTime { NAN };
-    double m_lastRenderTime { NAN };
-    double m_elapsedTime { 0 };
+    MonotonicTime m_startTime { MonotonicTime::nan() };
+    MonotonicTime m_lastRenderTime { MonotonicTime::nan() };
+    Seconds m_elapsedTime { 0_s };
+    MonotonicTime m_delayUntil;
 };
 
 } // namespace WebCore

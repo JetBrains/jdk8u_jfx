@@ -115,12 +115,16 @@ public:
 
     bool hasPendingActivity() const final;
 
+    void trySignalAllSamplesEnqueued();
+
 private:
     SourceBuffer(Ref<SourceBufferPrivate>&&, MediaSource*);
 
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
 
+    void suspend(ReasonForSuspension) final;
+    void resume() final;
     void stop() final;
     const char* activeDOMObjectName() const final;
     bool canSuspendForDocumentSuspension() const final;
@@ -129,6 +133,7 @@ private:
     void sourceBufferPrivateDidReceiveSample(MediaSample&) final;
     bool sourceBufferPrivateHasAudio() const final;
     bool sourceBufferPrivateHasVideo() const final;
+    void sourceBufferPrivateReenqueSamples(const AtomicString& trackID) final;
     void sourceBufferPrivateDidBecomeReadyForMoreSamples(const AtomicString& trackID) final;
     MediaTime sourceBufferPrivateFastSeekTimeForMediaTime(const MediaTime&, const MediaTime& negativeThreshold, const MediaTime& positiveThreshold) final;
     void sourceBufferPrivateAppendComplete(AppendResult) final;
@@ -179,6 +184,8 @@ private:
 
     void rangeRemoval(const MediaTime&, const MediaTime&);
 
+    void trySignalAllSamplesInTrackEnqueued(const AtomicString&);
+
     friend class Internals;
     WEBCORE_EXPORT Vector<String> bufferedSamplesForTrackID(const AtomicString&);
     WEBCORE_EXPORT Vector<String> enqueuedSamplesForTrackID(const AtomicString&);
@@ -213,7 +220,7 @@ private:
     enum AppendStateType { WaitingForSegment, ParsingInitSegment, ParsingMediaSegment };
     AppendStateType m_appendState;
 
-    double m_timeOfBufferingMonitor;
+    MonotonicTime m_timeOfBufferingMonitor;
     double m_bufferedSinceLastMonitor { 0 };
     double m_averageBufferRate { 0 };
 

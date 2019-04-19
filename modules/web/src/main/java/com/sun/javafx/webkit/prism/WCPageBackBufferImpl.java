@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,7 @@ import com.sun.prism.RTTexture;
 import com.sun.prism.ResourceFactoryListener;
 import com.sun.prism.Texture;
 import com.sun.prism.paint.Color;
+import com.sun.webkit.graphics.WCCamera;
 import com.sun.webkit.graphics.WCGraphicsContext;
 import com.sun.webkit.graphics.WCGraphicsManager;
 import com.sun.webkit.graphics.WCPageBackBuffer;
@@ -54,6 +55,8 @@ final class WCPageBackBufferImpl extends WCPageBackBuffer implements ResourceFac
 
     public WCGraphicsContext createGraphics() {
         Graphics g = texture.createGraphics();
+        // Make use of custom camera created for WebKit.
+        g.setCamera(WCCamera.INSTANCE);
         g.scale(pixelScale, pixelScale);
         return WCGraphicsManager.getGraphicsManager().createGraphicsContext(g);
     }

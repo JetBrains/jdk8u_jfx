@@ -37,7 +37,9 @@ enum TileSizeMode {
 
 class FloatPoint;
 class FloatRect;
+class FloatSize;
 class IntRect;
+class IntSize;
 class PlatformCALayer;
 
 enum ScrollingModeIndication {
@@ -69,7 +71,7 @@ struct VelocityData  {
 
 class TiledBacking {
 public:
-    virtual ~TiledBacking() { }
+    virtual ~TiledBacking() = default;
 
     virtual void setVisibleRect(const FloatRect&) = 0;
     virtual FloatRect visibleRect() const = 0;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -220,6 +220,10 @@ public final class BackForwardList {
         return get(getCurrentIndex());
     }
 
+    public void clearBackForwardListForDRT() {
+        bflClearBackForwardListForDRT(page.getPage());
+    }
+
     public int indexOf(Entry e) {
         return bflIndexOf(page.getPage(), e.pitem, false);
     }
@@ -315,6 +319,7 @@ public final class BackForwardList {
     native private static boolean bflItemIsTargetItem(long item);
     native private static Entry[] bflItemGetChildren(long item, long page);
     native private static String bflItemGetTarget(long item);
+    native private static void bflClearBackForwardListForDRT(long page);
 
     native private static int bflSize(long page);
     native private static int bflGetMaximumSize(long page);

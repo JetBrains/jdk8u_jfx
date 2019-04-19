@@ -20,16 +20,15 @@
 
 #pragma once
 
-#include "CSSParserMode.h"
+#include "CSSParserContext.h"
 #include "CachePolicy.h"
 #include "URL.h"
+#include <wtf/Function.h>
 #include <wtf/HashMap.h>
-#include <wtf/ListHashSet.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/AtomicStringHash.h>
-#include <wtf/text/TextPosition.h>
 
 namespace WebCore {
 
@@ -37,13 +36,14 @@ class CSSStyleSheet;
 class CachedCSSStyleSheet;
 class CachedResource;
 class Document;
+class FrameLoader;
 class Node;
 class SecurityOrigin;
 class StyleRuleBase;
 class StyleRuleImport;
 class StyleRuleNamespace;
 
-class StyleSheetContents final : public RefCounted<StyleSheetContents> {
+class StyleSheetContents final : public RefCounted<StyleSheetContents>, public CanMakeWeakPtr<StyleSheetContents> {
 public:
     static Ref<StyleSheetContents> create(const CSSParserContext& context = CSSParserContext(HTMLStandardMode))
     {
@@ -71,7 +71,7 @@ public:
     bool isCacheable() const;
 
     bool isLoading() const;
-    bool subresourcesAllowReuse(CachePolicy) const;
+    bool subresourcesAllowReuse(CachePolicy, FrameLoader&) const;
     WEBCORE_EXPORT bool isLoadingSubresources() const;
 
     void checkLoaded();
@@ -86,7 +86,8 @@ public:
     bool loadCompleted() const { return m_loadCompleted; }
 
     URL completeURL(const String& url) const;
-    bool traverseSubresources(const std::function<bool (const CachedResource&)>& handler) const;
+    bool traverseRules(const WTF::Function<bool (const StyleRuleBase&)>& handler) const;
+    bool traverseSubresources(const WTF::Function<bool (const CachedResource&)>& handler) const;
 
     void setIsUserStyleSheet(bool b) { m_isUserStyleSheet = b; }
     bool isUserStyleSheet() const { return m_isUserStyleSheet; }
@@ -143,8 +144,6 @@ public:
 
     void shrinkToFit();
 
-    WeakPtr<StyleSheetContents> createWeakPtr() { return m_weakPtrFactory.createWeakPtr(); }
-
 private:
     WEBCORE_EXPORT StyleSheetContents(StyleRuleImport* ownerRule, const String& originalURL, const CSSParserContext&);
     StyleSheetContents(const StyleSheetContents&);
@@ -174,8 +173,6 @@ private:
     CSSParserContext m_parserContext;
 
     Vector<CSSStyleSheet*> m_clients;
-
-    WeakPtrFactory<StyleSheetContents> m_weakPtrFactory { this };
 };
 
 } // namespace WebCore

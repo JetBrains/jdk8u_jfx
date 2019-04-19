@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,7 +29,7 @@
 
 namespace JSC {
 
-class JSDollarVM : public JSNonFinalObject {
+class JSDollarVM final : public JSNonFinalObject {
 public:
     typedef JSNonFinalObject Base;
 
@@ -52,6 +52,10 @@ private:
         : Base(vm, structure)
     {
     }
+
+    void finishCreation(VM&);
+    void addFunction(VM&, JSGlobalObject*, const char* name, NativeFunction, unsigned arguments);
+    void addConstructibleFunction(VM&, JSGlobalObject*, const char* name, NativeFunction, unsigned arguments);
 };
 
 } // namespace JSC

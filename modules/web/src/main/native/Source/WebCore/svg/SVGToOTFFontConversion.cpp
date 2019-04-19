@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,6 +39,7 @@
 #include "SVGPathParser.h"
 #include "SVGPathStringSource.h"
 #include "SVGVKernElement.h"
+#include <wtf/text/StringView.h>
 
 namespace WebCore {
 
@@ -263,7 +264,7 @@ private:
     int m_descent;
     unsigned m_featureCountGSUB;
     unsigned m_tablesAppendedCount;
-    char m_weight;
+    uint8_t m_weight;
     bool m_italic;
     bool m_error { false };
 };
@@ -420,14 +421,6 @@ void SVGToOTFFontConverter::appendHEADTable()
     append16(0); // Glyph data format
 }
 
-// Assumption: T2 can hold every value that a T1 can hold.
-template<typename T1, typename T2> static inline T1 clampTo(T2 x)
-{
-    x = std::min(x, static_cast<T2>(std::numeric_limits<T1>::max()));
-    x = std::max(x, static_cast<T2>(std::numeric_limits<T1>::min()));
-    return static_cast<T1>(x);
-}
-
 void SVGToOTFFontConverter::appendHHEATable()
 {
     append32(0x00010000); // Version
@@ -506,7 +499,7 @@ void SVGToOTFFontConverter::appendOS2Table()
 
     append16(2); // Version
     append16(clampTo<int16_t>(averageAdvance));
-    append16(clampTo<uint16_t>(m_weight)); // Weight class
+    append16(m_weight); // Weight class
     append16(5); // Width class
     append16(0); // Protected font
     // WebKit handles these superscripts and subscripts
@@ -526,13 +519,12 @@ void SVGToOTFFontConverter::appendOS2Table()
     const unsigned panoseSize = 10;
     char panoseBytes[panoseSize];
     if (m_fontFaceElement) {
-        Vector<String> segments;
-        m_fontFaceElement->attributeWithoutSynchronization(SVGNames::panose_1Attr).string().split(' ', segments);
+        Vector<String> segments = m_fontFaceElement->attributeWithoutSynchronization(SVGNames::panose_1Attr).string().split(' ');
         if (segments.size() == panoseSize) {
             for (auto& segment : segments) {
                 bool ok;
                 int value = segment.toInt(&ok);
-                if (ok && value >= 0 && value <= 0xFF)
+                if (ok && value >= std::numeric_limits<uint8_t>::min() && value <= std::numeric_limits<uint8_t>::max())
                     panoseBytes[numPanoseBytes++] = value;
             }
         }
@@ -682,7 +674,7 @@ void SVGToOTFFontConverter::appendCFFTable()
     ASSERT(m_result.size() == topDictStart + sizeOfTopIndex);
 
     // String INDEX
-    String unknownCharacter = ASCIILiteral("UnknownChar");
+    String unknownCharacter = "UnknownChar"_s;
     append16(2 + (hasWeight ? 1 : 0)); // Number of elements in INDEX
     m_result.append(4); // Offsets in this INDEX are 4 bytes long
     uint32_t offset = 1;
@@ -1122,12 +1114,6 @@ void SVGToOTFFontConverter::appendKERNTable()
     ASSERT_UNUSED(sizeOfHorizontalSubtable, subtablesOffset + sizeOfHorizontalSubtable == m_result.size());
     size_t sizeOfVerticalSubtable = appendKERNSubtable<SVGVKernElement>(&SVGVKernElement::buildVerticalKerningPair, 0);
     ASSERT_UNUSED(sizeOfVerticalSubtable, subtablesOffset + sizeOfHorizontalSubtable + sizeOfVerticalSubtable == m_result.size());
-
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED <= 101000
-    // Work around a bug in Apple's font parser by adding some padding bytes. <rdar://problem/18401901>
-    for (int i = 0; i < 6; ++i)
-        m_result.append(0);
-#endif
 }
 
 template <typename V>
@@ -1437,12 +1423,6 @@ SVGToOTFFontConverter::SVGToOTFFontConverter(const SVGFontElement& fontElement)
 
     m_boundingBox = boundingBox.value_or(FloatRect());
 
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED <= 101000
-    // <rdar://problem/20086223> Cocoa has a bug where glyph bounding boxes are not correctly respected for frustum culling. Work around this by
-    // inflating the font's bounding box
-    m_boundingBox.extend(FloatPoint(0, 0));
-#endif
-
     appendLigatureGlyphs();
 
     if (m_glyphs.size() > std::numeric_limits<Glyph>::max()) {
@@ -1471,22 +1451,21 @@ SVGToOTFFontConverter::SVGToOTFFontConverter(const SVGFontElement& fontElement)
 
     // FIXME: Handle commas.
     if (m_fontFaceElement) {
-        Vector<String> segments;
-        m_fontFaceElement->attributeWithoutSynchronization(SVGNames::font_weightAttr).string().split(' ', segments);
-        for (auto& segment : segments) {
+        auto& fontWeightAttribute = m_fontFaceElement->attributeWithoutSynchronization(SVGNames::font_weightAttr);
+        for (auto segment : StringView(fontWeightAttribute).split(' ')) {
             if (equalLettersIgnoringASCIICase(segment, "bold")) {
                 m_weight = 7;
                 break;
             }
             bool ok;
-            int value = segment.toInt(&ok);
+            int value = segment.toInt(ok);
             if (ok && value >= 0 && value < 1000) {
-                m_weight = (value + 50) / 100;
+                m_weight = std::max(std::min((value + 50) / 100, static_cast<int>(std::numeric_limits<uint8_t>::max())), static_cast<int>(std::numeric_limits<uint8_t>::min()));
                 break;
             }
         }
-        m_fontFaceElement->attributeWithoutSynchronization(SVGNames::font_styleAttr).string().split(' ', segments);
-        for (auto& segment : segments) {
+        auto& fontStyleAttribute = m_fontFaceElement->attributeWithoutSynchronization(SVGNames::font_styleAttr);
+        for (auto segment : StringView(fontStyleAttribute).split(' ')) {
             if (equalLettersIgnoringASCIICase(segment, "italic") || equalLettersIgnoringASCIICase(segment, "oblique")) {
                 m_italic = true;
                 break;

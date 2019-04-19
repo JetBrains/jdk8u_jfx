@@ -36,7 +36,7 @@
 
 namespace WebCore {
 
-static const double taskDelayInterval = 1.0 / 10.0;
+static const Seconds taskDelayInterval { 100_ms };
 
 struct ClientState {
     explicit ClientState(WebMediaSessionManagerClient& client, uint64_t contextId)
@@ -132,9 +132,7 @@ WebMediaSessionManager::WebMediaSessionManager()
 {
 }
 
-WebMediaSessionManager::~WebMediaSessionManager()
-{
-}
+WebMediaSessionManager::~WebMediaSessionManager() = default;
 
 uint64_t WebMediaSessionManager::addPlaybackTargetPickerClient(WebMediaSessionManagerClient& client, uint64_t contextId)
 {
@@ -180,7 +178,7 @@ void WebMediaSessionManager::removeAllPlaybackTargetPickerClients(WebMediaSessio
     scheduleDelayedTask(TargetMonitoringConfigurationTask | TargetClientsConfigurationTask);
 }
 
-void WebMediaSessionManager::showPlaybackTargetPicker(WebMediaSessionManagerClient& client, uint64_t contextId, const IntRect& rect, bool)
+void WebMediaSessionManager::showPlaybackTargetPicker(WebMediaSessionManagerClient& client, uint64_t contextId, const IntRect& rect, bool, bool useDarkAppearance)
 {
     size_t index = find(&client, contextId);
     ASSERT(index != notFound);
@@ -195,7 +193,7 @@ void WebMediaSessionManager::showPlaybackTargetPicker(WebMediaSessionManagerClie
 
     bool hasActiveRoute = flagsAreSet(m_clientState[index]->flags, MediaProducer::IsPlayingToExternalDevice);
     LOG(Media, "WebMediaSessionManager::showPlaybackTargetPicker(%p + %llu) - hasActiveRoute = %i", &client, contextId, (int)hasActiveRoute);
-    targetPicker().showPlaybackTargetPicker(FloatRect(rect), hasActiveRoute);
+    targetPicker().showPlaybackTargetPicker(FloatRect(rect), hasActiveRoute, useDarkAppearance);
 }
 
 void WebMediaSessionManager::clientStateDidChange(WebMediaSessionManagerClient& client, uint64_t contextId, MediaProducer::MediaStateFlags newFlags)
@@ -423,8 +421,8 @@ size_t WebMediaSessionManager::find(WebMediaSessionManagerClient* client, uint64
 
 void WebMediaSessionManager::configureWatchdogTimer()
 {
-    static const double watchdogTimerIntervalAfterPausing = 60 * 60;
-    static const double watchdogTimerIntervalAfterPlayingToEnd = 8 * 60;
+    static const Seconds watchdogTimerIntervalAfterPausing { 1_h };
+    static const Seconds watchdogTimerIntervalAfterPlayingToEnd { 8_min };
 
     if (!m_playbackTarget || !m_playbackTarget->hasActiveRoute()) {
         m_watchdogTimer.stop();
@@ -442,14 +440,14 @@ void WebMediaSessionManager::configureWatchdogTimer()
     }
 
     if (stopTimer) {
-        m_currentWatchdogInterval = 0;
+        m_currentWatchdogInterval = { };
         m_watchdogTimer.stop();
         LOG(Media, "WebMediaSessionManager::configureWatchdogTimer - timer stopped");
     } else {
-        double interval = didPlayToEnd ? watchdogTimerIntervalAfterPlayingToEnd : watchdogTimerIntervalAfterPausing;
+        Seconds interval = didPlayToEnd ? watchdogTimerIntervalAfterPlayingToEnd : watchdogTimerIntervalAfterPausing;
         if (interval != m_currentWatchdogInterval || !m_watchdogTimer.isActive()) {
             m_watchdogTimer.startOneShot(interval);
-            LOG(Media, "WebMediaSessionManager::configureWatchdogTimer - timer scheduled for %.0f", interval);
+            LOG(Media, "WebMediaSessionManager::configureWatchdogTimer - timer scheduled for %.0f seconds", interval.value());
         }
         m_currentWatchdogInterval = interval;
     }

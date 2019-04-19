@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -55,6 +55,8 @@ public:
 #else
         return 52;
 #endif
+#elif CPU(MIPS)
+        return 72;
 #else
 #error "unsupported platform"
 #endif
@@ -75,6 +77,8 @@ public:
 #else
         return 48;
 #endif
+#elif CPU(MIPS)
+        return 72;
 #else
 #error "unsupported platform"
 #endif
@@ -83,7 +87,7 @@ public:
     // FIXME: Make this constexpr when GCC is able to compile std::max() inside a constexpr function.
     // https://bugs.webkit.org/show_bug.cgi?id=159436
     //
-    // This is the maximum between the size for array length access, and the size for regular self access.
+    // This is the maximum between array length, string length, and regular self access sizes.
     ALWAYS_INLINE static size_t sizeForLengthAccess()
     {
 #if CPU(X86_64)
@@ -98,24 +102,28 @@ public:
 #else
         size_t size = 32;
 #endif
+#elif CPU(MIPS)
+        size_t size = 56;
 #else
 #error "unsupported platform"
 #endif
         return std::max(size, sizeForPropertyAccess());
     }
 
-    static bool generateSelfPropertyAccess(VM&, StructureStubInfo&, Structure*, PropertyOffset);
+    static bool generateSelfPropertyAccess(StructureStubInfo&, Structure*, PropertyOffset);
     static bool canGenerateSelfPropertyReplace(StructureStubInfo&, PropertyOffset);
-    static bool generateSelfPropertyReplace(VM&, StructureStubInfo&, Structure*, PropertyOffset);
+    static bool generateSelfPropertyReplace(StructureStubInfo&, Structure*, PropertyOffset);
     static bool isCacheableArrayLength(StructureStubInfo&, JSArray*);
-    static bool generateArrayLength(VM&, StructureStubInfo&, JSArray*);
-    static void rewireStubAsJump(VM&, StructureStubInfo&, CodeLocationLabel);
+    static bool generateArrayLength(StructureStubInfo&, JSArray*);
+    static void rewireStubAsJump(StructureStubInfo&, CodeLocationLabel<JITStubRoutinePtrTag>);
+    static bool generateSelfInAccess(StructureStubInfo&, Structure*);
+    static bool generateStringLength(StructureStubInfo&);
 
     // This is helpful when determining the size of an IC on
     // various platforms. When adding a new type of IC, implement
     // its placeholder code here, and log the size. That way we
     // can intelligently choose sizes on various platforms.
-    NO_RETURN_DUE_TO_CRASH static void dumpCacheSizesAndCrash(VM&);
+    NO_RETURN_DUE_TO_CRASH static void dumpCacheSizesAndCrash();
 };
 
 } // namespace JSC

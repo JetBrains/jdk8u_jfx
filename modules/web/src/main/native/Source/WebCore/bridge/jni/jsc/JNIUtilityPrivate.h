@@ -29,7 +29,7 @@
 #if ENABLE(JAVA_BRIDGE)
 
 #include "JNIUtility.h"
-#include <runtime/JSCJSValue.h>
+#include <JavaScriptCore/JSCJSValue.h>
 
 namespace JSC {
 
@@ -42,9 +42,7 @@ class RootObject;
 
 jvalue convertValueToJValue(ExecState*, RootObject*, JSValue, JavaType, const char* javaClassName);
 jobject convertUndefinedToJObject();
-
- jthrowable dispatchJNICall(int, RootObject *rootObject, jobject, bool isStatic, JavaType returnType, jmethodID, jobject* args, jvalue& result, jobject accessControlContext);
-
+jthrowable dispatchJNICall(int, RootObject *rootObject, jobject, bool isStatic, JavaType returnType, jmethodID, jobject* args, jvalue& result, jobject accessControlContext);
 jobject jvalueToJObject(jvalue value, JavaType);
 
 } // namespace Bindings

@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PlatformStrategies_h
-#define PlatformStrategies_h
+#pragma once
 
 namespace WebCore {
 
@@ -64,9 +63,7 @@ public:
     }
 
 protected:
-    PlatformStrategies()
-    {
-    }
+    PlatformStrategies() = default;
 
     virtual ~PlatformStrategies()
     {
@@ -88,5 +85,3 @@ WEBCORE_EXPORT PlatformStrategies* platformStrategies();
 WEBCORE_EXPORT void setPlatformStrategies(PlatformStrategies*);
 
 } // namespace WebCore
-
-#endif // PlatformStrategies_h

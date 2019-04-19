@@ -49,9 +49,7 @@ AudioSession::AudioSession()
     notImplemented();
 }
 
-AudioSession::~AudioSession()
-{
-}
+AudioSession::~AudioSession() = default;
 
 void AudioSession::setCategory(CategoryType)
 {
@@ -81,6 +79,12 @@ float AudioSession::sampleRate() const
     return 0;
 }
 
+size_t AudioSession::bufferSize() const
+{
+    notImplemented();
+    return 0;
+}
+
 size_t AudioSession::numberOfOutputChannels() const
 {
     notImplemented();
@@ -103,6 +107,17 @@ void AudioSession::setPreferredBufferSize(size_t)
 {
     notImplemented();
 }
+
+RouteSharingPolicy AudioSession::routeSharingPolicy() const
+{
+    return RouteSharingPolicy::Default;
+}
+
+String AudioSession::routingContextUID() const
+{
+    return emptyString();
+}
+
 #endif // !PLATFORM(COCOA)
 
 }

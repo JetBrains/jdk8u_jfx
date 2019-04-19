@@ -28,10 +28,12 @@
 
 #include "ApplicationCacheStorage.h"
 #include "BackForwardClient.h"
+#include "CacheStorageProvider.h"
 #include "DatabaseProvider.h"
 #include "DiagnosticLoggingClient.h"
 #include "EditorClient.h"
 #include "LibWebRTCProvider.h"
+#include "PerformanceLoggingClient.h"
 #include "PluginInfoProvider.h"
 #include "SocketProvider.h"
 #include "StorageNamespaceProvider.h"
@@ -42,15 +44,14 @@
 
 namespace WebCore {
 
-PageConfiguration::PageConfiguration(UniqueRef<EditorClient>&& editorClient, Ref<SocketProvider>&& socketProvider, UniqueRef<LibWebRTCProvider>&& libWebRTCProvider)
+PageConfiguration::PageConfiguration(UniqueRef<EditorClient>&& editorClient, Ref<SocketProvider>&& socketProvider, UniqueRef<LibWebRTCProvider>&& libWebRTCProvider, Ref<CacheStorageProvider>&& cacheStorageProvider)
     : editorClient(WTFMove(editorClient))
     , socketProvider(WTFMove(socketProvider))
     , libWebRTCProvider(WTFMove(libWebRTCProvider))
+    , cacheStorageProvider(WTFMove(cacheStorageProvider))
 {
 }
 
-PageConfiguration::~PageConfiguration()
-{
-}
+PageConfiguration::~PageConfiguration() = default;
 
 }

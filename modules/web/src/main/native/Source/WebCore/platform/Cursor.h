@@ -78,6 +78,8 @@ using PlatformCursor = NSCursor *;
 using PlatformCursor = GRefPtr<GdkCursor>;
 #elif PLATFORM(JAVA)
 using PlatformCursor = jlong;
+#else
+using PlatformCursor = void*;
 #endif
 
 class Cursor {

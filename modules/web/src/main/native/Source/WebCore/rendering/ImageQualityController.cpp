@@ -35,7 +35,7 @@
 namespace WebCore {
 
 static const double cInterpolationCutoff = 800. * 800.;
-static const double cLowQualityTimeThreshold = 0.500; // 500 ms
+static const Seconds lowQualityTimeThreshold { 500_ms };
 
 ImageQualityController::ImageQualityController(const RenderView& renderView)
     : m_renderView(renderView)
@@ -94,20 +94,20 @@ void ImageQualityController::highQualityRepaintTimerFired()
 
 void ImageQualityController::restartTimer()
 {
-    m_timer.startOneShot(cLowQualityTimeThreshold);
+    m_timer.startOneShot(lowQualityTimeThreshold);
 }
 
 std::optional<InterpolationQuality> ImageQualityController::interpolationQualityFromStyle(const RenderStyle& style)
 {
     switch (style.imageRendering()) {
-    case ImageRenderingOptimizeSpeed:
+    case ImageRendering::OptimizeSpeed:
         return InterpolationLow;
-    case ImageRenderingCrispEdges:
-    case ImageRenderingPixelated:
+    case ImageRendering::CrispEdges:
+    case ImageRendering::Pixelated:
         return InterpolationNone;
-    case ImageRenderingOptimizeQuality:
+    case ImageRendering::OptimizeQuality:
         return InterpolationDefault; // FIXME: CSS 3 Images says that optimizeQuality should behave like 'auto', but that prevents authors from overriding this low quality rendering behavior.
-    case ImageRenderingAuto:
+    case ImageRendering::Auto:
         break;
     }
     return std::nullopt;

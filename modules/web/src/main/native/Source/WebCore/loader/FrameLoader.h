@@ -36,15 +36,18 @@
 #include "FrameLoaderTypes.h"
 #include "LayoutMilestones.h"
 #include "MixedContentChecker.h"
-#include "ResourceHandleTypes.h"
+#include "ReferrerPolicy.h"
 #include "ResourceLoadNotifier.h"
 #include "ResourceLoaderOptions.h"
 #include "ResourceRequestBase.h"
 #include "SecurityContext.h"
+#include "StoredCredentialsPolicy.h"
 #include "Timer.h"
 #include <wtf/Forward.h>
 #include <wtf/HashSet.h>
+#include <wtf/OptionSet.h>
 #include <wtf/Optional.h>
+#include <wtf/WallTime.h>
 
 namespace WebCore {
 
@@ -60,11 +63,11 @@ class DocumentLoader;
 class Event;
 class FormState;
 class FormSubmission;
+class FrameLoadRequest;
 class FrameLoaderClient;
 class FrameNetworkingContext;
 class HistoryController;
 class HistoryItem;
-class IconController;
 class NavigationAction;
 class NetworkingContext;
 class Page;
@@ -77,10 +80,15 @@ class SharedBuffer;
 class SubframeLoader;
 class SubstituteData;
 
-struct FrameLoadRequest;
+enum class ShouldContinue;
+enum class ShouldTreatAsContinuingLoad;
+
 struct WindowFeatures;
 
 WEBCORE_EXPORT bool isBackForwardLoadType(FrameLoadType);
+WEBCORE_EXPORT bool isReload(FrameLoadType);
+
+using ContentPolicyDecisionFunction = WTF::Function<void(PolicyAction)>;
 
 class FrameLoader {
     WTF_MAKE_NONCOPYABLE(FrameLoader);
@@ -89,9 +97,7 @@ public:
     ~FrameLoader();
 
     WEBCORE_EXPORT void init();
-#if PLATFORM(IOS)
     void initForSynthesizedDocument(const URL&);
-#endif
 
     Frame& frame() const { return m_frame; }
 
@@ -99,45 +105,47 @@ public:
     HistoryController& history() const { return *m_history; }
     ResourceLoadNotifier& notifier() const { return m_notifier; }
     SubframeLoader& subframeLoader() const { return *m_subframeLoader; }
-    IconController& icon() const { return *m_icon; }
     MixedContentChecker& mixedContentChecker() const { return m_mixedContentChecker; }
 
     void setupForReplace();
 
     // FIXME: These are all functions which start loads. We have too many.
     WEBCORE_EXPORT void loadURLIntoChildFrame(const URL&, const String& referer, Frame*);
-    WEBCORE_EXPORT void loadFrameRequest(const FrameLoadRequest&, Event*, FormState*); // Called by submitForm, calls loadPostRequest and loadURL.
+    WEBCORE_EXPORT void loadFrameRequest(FrameLoadRequest&&, Event*, RefPtr<FormState>&&); // Called by submitForm, calls loadPostRequest and loadURL.
 
-    WEBCORE_EXPORT void load(const FrameLoadRequest&);
+    WEBCORE_EXPORT void load(FrameLoadRequest&&);
 
 #if ENABLE(WEB_ARCHIVE) || ENABLE(MHTML)
     WEBCORE_EXPORT void loadArchive(Ref<Archive>&&);
 #endif
-    unsigned long loadResourceSynchronously(const ResourceRequest&, StoredCredentials, ClientCredentialPolicy, ResourceError&, ResourceResponse&, RefPtr<SharedBuffer>& data);
+    unsigned long loadResourceSynchronously(const ResourceRequest&, ClientCredentialPolicy, const FetchOptions&, const HTTPHeaderMap&, ResourceError&, ResourceResponse&, RefPtr<SharedBuffer>& data);
 
-    void changeLocation(const FrameLoadRequest&);
-    WEBCORE_EXPORT void urlSelected(const URL&, const String& target, Event*, LockHistory, LockBackForwardList, ShouldSendReferrer, ShouldOpenExternalURLsPolicy, std::optional<NewFrameOpenerPolicy> = std::nullopt, const AtomicString& downloadAttribute = nullAtom);
+    void changeLocation(FrameLoadRequest&&);
+    WEBCORE_EXPORT void urlSelected(const URL&, const String& target, Event*, LockHistory, LockBackForwardList, ShouldSendReferrer, ShouldOpenExternalURLsPolicy, std::optional<NewFrameOpenerPolicy> = std::nullopt, const AtomicString& downloadAttribute = nullAtom(), const SystemPreviewInfo& = { });
     void submitForm(Ref<FormSubmission>&&);
 
-    WEBCORE_EXPORT void reload(bool endToEndReload = false, bool contentBlockersEnabled = true);
+    WEBCORE_EXPORT void reload(OptionSet<ReloadOption> = { });
     WEBCORE_EXPORT void reloadWithOverrideEncoding(const String& overrideEncoding);
 
     void open(CachedFrameBase&);
-    void loadItem(HistoryItem&, FrameLoadType);
+    void loadItem(HistoryItem&, FrameLoadType, ShouldTreatAsContinuingLoad);
     HistoryItem* requestedHistoryItem() const { return m_requestedHistoryItem.get(); }
 
     void retryAfterFailedCacheOnlyMainResourceLoad();
 
     static void reportLocalLoadFailed(Frame*, const String& url);
     static void reportBlockedPortFailed(Frame*, const String& url);
+    static void reportAuthenticationChallengeBlocked(Frame*, const URL&, const String& reason);
 
     // FIXME: These are all functions which stop loads. We have too many.
+    void stopAllLoadersAndCheckCompleteness();
     WEBCORE_EXPORT void stopAllLoaders(ClearProvisionalItemPolicy = ShouldClearProvisionalItem);
     WEBCORE_EXPORT void stopForUserCancel(bool deferCheckLoadComplete = false);
     void stop();
     void stopLoading(UnloadEventPolicy);
     bool closeURL();
     void cancelAndClear();
+    void clearProvisionalLoadForPolicyCheck();
     // FIXME: clear() is trying to do too many things. We should break it down into smaller functions (ideally with fewer raw Boolean parameters).
     void clear(Document* newDocument, bool clearWindowProperties = true, bool clearScriptObjects = true, bool clearFrameView = true);
 
@@ -145,6 +153,8 @@ public:
     WEBCORE_EXPORT bool frameHasLoaded() const;
 
     WEBCORE_EXPORT int numPendingOrLoadingRequests(bool recurse) const;
+
+    ReferrerPolicy effectiveReferrerPolicy() const;
     String referrer() const;
     WEBCORE_EXPORT String outgoingReferrer() const;
     String outgoingOrigin() const;
@@ -154,6 +164,8 @@ public:
     DocumentLoader* policyDocumentLoader() const { return m_policyDocumentLoader.get(); }
     DocumentLoader* provisionalDocumentLoader() const { return m_provisionalDocumentLoader.get(); }
     FrameState state() const { return m_state; }
+
+    bool shouldReportResourceTimingToParentFrame() const { return m_shouldReportResourceTimingToParentFrame; };
 
 #if PLATFORM(IOS)
     RetainPtr<CFDictionaryRef> connectionProperties(ResourceLoader*);
@@ -185,12 +197,12 @@ public:
 
     WEBCORE_EXPORT FrameLoadType loadType() const;
 
-    CachePolicy subresourceCachePolicy() const;
+    CachePolicy subresourceCachePolicy(const URL&) const;
 
     void didReachLayoutMilestone(LayoutMilestones);
     void didFirstLayout();
 
-    void loadedResourceFromMemoryCache(CachedResource*, ResourceRequest& newRequest);
+    void loadedResourceFromMemoryCache(CachedResource&, ResourceRequest& newRequest, ResourceError&);
     void tellClientAboutPastMemoryCacheLoads();
 
     void checkLoadComplete();
@@ -202,10 +214,13 @@ public:
 
     static void addHTTPOriginIfNeeded(ResourceRequest&, const String& origin);
     static void addHTTPUpgradeInsecureRequestsIfNeeded(ResourceRequest&);
+    static void addSameSiteInfoToRequestIfNeeded(ResourceRequest&, const Document* initiator = nullptr);
 
     FrameLoaderClient& client() const { return m_client; }
 
     void setDefersLoading(bool);
+
+    void checkContentPolicy(const ResourceResponse&, ContentPolicyDecisionFunction&&);
 
     void didExplicitOpen();
 
@@ -238,7 +253,8 @@ public:
 
     void setOutgoingReferrer(const URL&);
 
-    void loadDone();
+    void loadDone(LoadCompletionType);
+    void subresourceLoadDone(LoadCompletionType);
     void finishedParsing();
     void checkCompleted();
 
@@ -253,19 +269,14 @@ public:
 
     WEBCORE_EXPORT Frame* findFrameForNavigation(const AtomicString& name, Document* activeDocument = nullptr);
 
-    void applyUserAgent(ResourceRequest&);
+    void applyUserAgentIfNeeded(ResourceRequest&);
 
     bool shouldInterruptLoadForXFrameOptions(const String&, const URL&, unsigned long requestIdentifier);
 
     void completed();
     bool allAncestorsAreComplete() const; // including this
-    void clientRedirected(const URL&, double delay, double fireDate, LockBackForwardList);
+    void clientRedirected(const URL&, double delay, WallTime fireDate, LockBackForwardList);
     void clientRedirectCancelledOrFinished(bool cancelWithLoadInProgress);
-
-    // FIXME: This is public because this asynchronous callback from the FrameLoaderClient
-    // uses the policy machinery (and therefore is called via the PolicyChecker).  Once we
-    // introduce a proper callback type for this function, we should make it private again.
-    void continueLoadAfterWillSubmitForm();
 
     WEBCORE_EXPORT void setOriginalURLForDownloadRequest(ResourceRequest&);
 
@@ -297,7 +308,8 @@ public:
     void setProvisionalLoadErrorBeingHandledURL(const URL& url) { m_provisionalLoadErrorBeingHandledURL = url; }
 
     bool isAlwaysOnLoggingAllowed() const;
-    bool shouldSuppressKeyboardInput() const;
+    bool shouldSuppressTextInputFromEditing() const;
+    bool isReloadingFromOrigin() const { return m_loadType == FrameLoadType::ReloadFromOrigin; }
 
 private:
     enum FormSubmissionCacheLoadPolicy {
@@ -308,9 +320,10 @@ private:
     bool allChildrenAreComplete() const; // immediate children, not all descendants
 
     void checkTimerFired();
+    void checkCompletenessNow();
 
     void loadSameDocumentItem(HistoryItem&);
-    void loadDifferentDocumentItem(HistoryItem&, FrameLoadType, FormSubmissionCacheLoadPolicy);
+    void loadDifferentDocumentItem(HistoryItem&, FrameLoadType, FormSubmissionCacheLoadPolicy, ShouldTreatAsContinuingLoad);
 
     void loadProvisionalItemFromCachedPage();
 
@@ -329,12 +342,12 @@ private:
     bool dispatchBeforeUnloadEvent(Chrome&, FrameLoader* frameLoaderBeingNavigated);
     void dispatchUnloadEvents(UnloadEventPolicy);
 
-    void continueLoadAfterNavigationPolicy(const ResourceRequest&, FormState*, bool shouldContinue, AllowNavigationToInvalidURL);
-    void continueLoadAfterNewWindowPolicy(const ResourceRequest&, FormState*, const String& frameName, const NavigationAction&, bool shouldContinue, AllowNavigationToInvalidURL, NewFrameOpenerPolicy);
+    void continueLoadAfterNavigationPolicy(const ResourceRequest&, FormState*, ShouldContinue, AllowNavigationToInvalidURL);
+    void continueLoadAfterNewWindowPolicy(const ResourceRequest&, FormState*, const String& frameName, const NavigationAction&, ShouldContinue, AllowNavigationToInvalidURL, NewFrameOpenerPolicy);
     void continueFragmentScrollAfterNavigationPolicy(const ResourceRequest&, bool shouldContinue);
 
     bool shouldPerformFragmentNavigation(bool isFormSubmission, const String& httpMethod, FrameLoadType, const URL&);
-    void scrollToFragmentWithParentBoundary(const URL&);
+    void scrollToFragmentWithParentBoundary(const URL&, bool isNewNavigation = true);
 
     void checkLoadCompleteForThisFrame();
 
@@ -346,21 +359,20 @@ private:
 
     void closeOldDataSources();
     void willRestoreFromCachedPage();
-    void didRestoreFromCachedPage();
 
     bool shouldReloadToHandleUnreachableURL(DocumentLoader*);
 
     void dispatchDidCommitLoad(std::optional<HasInsecureContent> initialHasInsecureContent);
 
-    void urlSelected(const FrameLoadRequest&, Event*);
+    void urlSelected(FrameLoadRequest&&, Event*);
 
-    void loadWithDocumentLoader(DocumentLoader*, FrameLoadType, FormState*, AllowNavigationToInvalidURL); // Calls continueLoadAfterNavigationPolicy
+    void loadWithDocumentLoader(DocumentLoader*, FrameLoadType, RefPtr<FormState>&&, AllowNavigationToInvalidURL, ShouldTreatAsContinuingLoad, CompletionHandler<void()>&&); // Calls continueLoadAfterNavigationPolicy
     void load(DocumentLoader*); // Calls loadWithDocumentLoader
 
-    void loadWithNavigationAction(const ResourceRequest&, const NavigationAction&, LockHistory, FrameLoadType, FormState*, AllowNavigationToInvalidURL); // Calls loadWithDocumentLoader
+    void loadWithNavigationAction(const ResourceRequest&, const NavigationAction&, LockHistory, FrameLoadType, RefPtr<FormState>&&, AllowNavigationToInvalidURL, CompletionHandler<void()>&&); // Calls loadWithDocumentLoader
 
-    void loadPostRequest(const FrameLoadRequest&, const String& referrer, FrameLoadType, Event*, FormState*);
-    void loadURL(const FrameLoadRequest&, const String& referrer, FrameLoadType, Event*, FormState*);
+    void loadPostRequest(FrameLoadRequest&&, const String& referrer, FrameLoadType, Event*, RefPtr<FormState>&&, CompletionHandler<void()>&&);
+    void loadURL(FrameLoadRequest&&, const String& referrer, FrameLoadType, Event*, RefPtr<FormState>&&, CompletionHandler<void()>&&);
 
     bool shouldReload(const URL& currentURL, const URL& destinationURL);
 
@@ -385,9 +397,8 @@ private:
 
     void dispatchGlobalObjectAvailableInAllWorlds();
 
-    void applyShouldOpenExternalURLsPolicyToNewDocumentLoader(DocumentLoader&, ShouldOpenExternalURLsPolicy propagatedPolicy);
-
     bool isNavigationAllowed() const;
+    bool isStopLoadingAllowed() const;
 
     Frame& m_frame;
     FrameLoaderClient& m_client;
@@ -397,7 +408,6 @@ private:
     mutable ResourceLoadNotifier m_notifier;
     const std::unique_ptr<SubframeLoader> m_subframeLoader;
     mutable FrameLoaderStateMachine m_stateMachine;
-    const std::unique_ptr<IconController> m_icon;
     mutable MixedContentChecker m_mixedContentChecker;
 
     class FrameProgressTracker;
@@ -419,6 +429,8 @@ private:
     bool m_quickRedirectComing;
     bool m_sentRedirectNotification;
     bool m_inStopAllLoaders;
+    bool m_inClearProvisionalLoadForPolicyCheck { false };
+    bool m_shouldReportResourceTimingToParentFrame { true };
 
     String m_outgoingReferrer;
 
@@ -456,6 +468,9 @@ private:
     std::optional<ResourceRequestCachePolicy> m_overrideCachePolicyForTesting;
     std::optional<ResourceLoadPriority> m_overrideResourceLoadPriorityForTesting;
     bool m_isStrictRawResourceValidationPolicyDisabledForTesting { false };
+    bool m_currentLoadShouldBeTreatedAsContinuingLoad { false };
+
+    bool m_checkingLoadCompleteForDetachment { false };
 
     URL m_previousURL;
     RefPtr<HistoryItem> m_requestedHistoryItem;
@@ -468,6 +483,6 @@ private:
 //
 // FIXME: Consider making this function part of an appropriate class (not FrameLoader)
 // and moving it to a more appropriate location.
-RefPtr<Frame> createWindow(Frame& openerFrame, Frame& lookupFrame, const FrameLoadRequest&, const WindowFeatures&, bool& created);
+RefPtr<Frame> createWindow(Frame& openerFrame, Frame& lookupFrame, FrameLoadRequest&&, const WindowFeatures&, bool& created);
 
 } // namespace WebCore

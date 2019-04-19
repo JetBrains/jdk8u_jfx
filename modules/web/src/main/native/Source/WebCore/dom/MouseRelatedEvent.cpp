@@ -23,52 +23,34 @@
 #include "config.h"
 #include "MouseRelatedEvent.h"
 
+#include "DOMWindow.h"
 #include "Document.h"
 #include "Frame.h"
 #include "FrameView.h"
+#include "LayoutPoint.h"
 #include "RenderLayer.h"
 #include "RenderObject.h"
 
 namespace WebCore {
 
-MouseRelatedEvent::MouseRelatedEvent()
-    : m_isSimulated(false)
-    , m_hasCachedRelativePosition(false)
-{
-}
-
-static LayoutSize contentsScrollOffset(DOMWindow* DOMWindow)
-{
-    if (!DOMWindow)
-        return LayoutSize();
-    Frame* frame = DOMWindow->frame();
-    if (!frame)
-        return LayoutSize();
-    FrameView* frameView = frame->view();
-    if (!frameView)
-        return LayoutSize();
-#if !PLATFORM(IOS)
-    float scaleFactor = frame->pageZoomFactor() * frame->frameScaleFactor();
-    return LayoutSize(frameView->scrollX() / scaleFactor, frameView->scrollY() / scaleFactor);
-#else
-    return LayoutSize(frameView->actualScrollX(), frameView->actualScrollY());
-#endif
-}
-
-MouseRelatedEvent::MouseRelatedEvent(const AtomicString& eventType, bool canBubble, bool cancelable, double timestamp, DOMWindow* DOMWindow,
-                                     int detail, const IntPoint& screenLocation, const IntPoint& windowLocation,
-#if ENABLE(POINTER_LOCK)
-                                     const IntPoint& movementDelta,
-#endif
-                                     bool ctrlKey, bool altKey, bool shiftKey, bool metaKey, bool isSimulated)
-    : UIEventWithKeyState(eventType, canBubble, cancelable, timestamp, DOMWindow, detail, ctrlKey, altKey, shiftKey, metaKey, false, false)
+MouseRelatedEvent::MouseRelatedEvent(const AtomicString& eventType, CanBubble canBubble, IsCancelable isCancelable, MonotonicTime timestamp, RefPtr<WindowProxy>&& view, int detail,
+    const IntPoint& screenLocation, const IntPoint& windowLocation, const IntPoint& movementDelta, OptionSet<Modifier> modifiers, IsSimulated isSimulated)
+    : UIEventWithKeyState(eventType, canBubble, isCancelable, timestamp, WTFMove(view), detail, modifiers)
     , m_screenLocation(screenLocation)
 #if ENABLE(POINTER_LOCK)
     , m_movementDelta(movementDelta)
 #endif
-    , m_isSimulated(isSimulated)
+    , m_isSimulated(isSimulated == IsSimulated::Yes)
 {
-    init(isSimulated, windowLocation);
+#if !ENABLE(POINTER_LOCK)
+    UNUSED_PARAM(movementDelta);
+#endif
+    init(m_isSimulated, windowLocation);
+}
+
+MouseRelatedEvent::MouseRelatedEvent(const AtomicString& type, IsCancelable isCancelable, MonotonicTime timestamp, RefPtr<WindowProxy>&& view, const IntPoint& globalLocation, OptionSet<Modifier> modifiers)
+    : MouseRelatedEvent(type, CanBubble::Yes, isCancelable, timestamp, WTFMove(view), 0, globalLocation, globalLocation /* Converted in init */, { }, modifiers, IsSimulated::No)
+{
 }
 
 MouseRelatedEvent::MouseRelatedEvent(const AtomicString& eventType, const MouseRelatedEventInit& initializer, IsTrusted isTrusted)
@@ -77,31 +59,20 @@ MouseRelatedEvent::MouseRelatedEvent(const AtomicString& eventType, const MouseR
 #if ENABLE(POINTER_LOCK)
     , m_movementDelta(IntPoint(0, 0))
 #endif
-    , m_isSimulated(false)
 {
     init(false, IntPoint(0, 0));
 }
 
 void MouseRelatedEvent::init(bool isSimulated, const IntPoint& windowLocation)
 {
-    LayoutPoint adjustedPageLocation;
-    LayoutPoint scrollPosition;
-
-    Frame* frame = view() ? view()->frame() : nullptr;
-    if (frame && !isSimulated) {
-        if (FrameView* frameView = frame->view()) {
-            scrollPosition = frameView->contentsScrollPosition();
-            adjustedPageLocation = frameView->windowToContents(windowLocation);
-            float scaleFactor = 1 / (frame->pageZoomFactor() * frame->frameScaleFactor());
-            if (scaleFactor != 1.0f) {
-                adjustedPageLocation.scale(scaleFactor);
-                scrollPosition.scale(scaleFactor);
-            }
+    if (!isSimulated) {
+        if (auto* frameView = frameViewFromWindowProxy(view())) {
+            FloatPoint absolutePoint = frameView->windowToContents(windowLocation);
+            FloatPoint documentPoint = frameView->absoluteToDocumentPoint(absolutePoint);
+            m_pageLocation = flooredLayoutPoint(documentPoint);
+            m_clientLocation = pagePointToClientPoint(m_pageLocation, frameView);
         }
     }
-
-    m_clientLocation = adjustedPageLocation - toLayoutSize(scrollPosition);
-    m_pageLocation = adjustedPageLocation;
 
     initCoordinates();
 }
@@ -117,12 +88,41 @@ void MouseRelatedEvent::initCoordinates()
     m_hasCachedRelativePosition = false;
 }
 
+FrameView* MouseRelatedEvent::frameViewFromWindowProxy(WindowProxy* windowProxy)
+{
+    if (!windowProxy || !is<DOMWindow>(windowProxy->window()))
+        return nullptr;
+
+    auto* frame = downcast<DOMWindow>(*windowProxy->window()).frame();
+    return frame ? frame->view() : nullptr;
+}
+
+LayoutPoint MouseRelatedEvent::pagePointToClientPoint(LayoutPoint pagePoint, FrameView* frameView)
+{
+    if (!frameView)
+        return pagePoint;
+
+    return flooredLayoutPoint(frameView->documentToClientPoint(pagePoint));
+}
+
+LayoutPoint MouseRelatedEvent::pagePointToAbsolutePoint(LayoutPoint pagePoint, FrameView* frameView)
+{
+    if (!frameView)
+        return pagePoint;
+
+    return pagePoint.scaled(frameView->documentToAbsoluteScaleFactor());
+}
+
 void MouseRelatedEvent::initCoordinates(const LayoutPoint& clientLocation)
 {
     // Set up initial values for coordinates.
     // Correct values are computed lazily, see computeRelativePosition.
+    FloatSize documentToClientOffset;
+    if (auto* frameView = frameViewFromWindowProxy(view()))
+        documentToClientOffset = frameView->documentToClientOffset();
+
     m_clientLocation = clientLocation;
-    m_pageLocation = clientLocation + contentsScrollOffset(view());
+    m_pageLocation = clientLocation - LayoutSize(documentToClientOffset);
 
     m_layerLocation = m_pageLocation;
     m_offsetLocation = m_pageLocation;
@@ -131,32 +131,17 @@ void MouseRelatedEvent::initCoordinates(const LayoutPoint& clientLocation)
     m_hasCachedRelativePosition = false;
 }
 
-static float pageZoomFactor(const UIEvent* event)
+float MouseRelatedEvent::documentToAbsoluteScaleFactor() const
 {
-    DOMWindow* window = event->view();
-    if (!window)
-        return 1;
-    Frame* frame = window->frame();
-    if (!frame)
-        return 1;
-    return frame->pageZoomFactor();
-}
+    if (auto* frameView = frameViewFromWindowProxy(view()))
+        return frameView->documentToAbsoluteScaleFactor();
 
-static float frameScaleFactor(const UIEvent* event)
-{
-    DOMWindow* window = event->view();
-    if (!window)
-        return 1;
-    Frame* frame = window->frame();
-    if (!frame)
-        return 1;
-    return frame->frameScaleFactor();
+    return 1;
 }
 
 void MouseRelatedEvent::computePageLocation()
 {
-    float scaleFactor = pageZoomFactor(this) * frameScaleFactor(this);
-    setAbsoluteLocation(LayoutPoint(pageX() * scaleFactor, pageY() * scaleFactor));
+    m_absoluteLocation = pagePointToAbsolutePoint(m_pageLocation, frameViewFromWindowProxy(view()));
 }
 
 void MouseRelatedEvent::receivedTarget()
@@ -166,21 +151,21 @@ void MouseRelatedEvent::receivedTarget()
 
 void MouseRelatedEvent::computeRelativePosition()
 {
-    Node* targetNode = target() ? target()->toNode() : nullptr;
-    if (!targetNode)
+    if (!is<Node>(target()))
         return;
+    auto& targetNode = downcast<Node>(*target());
 
     // Compute coordinates that are based on the target.
     m_layerLocation = m_pageLocation;
     m_offsetLocation = m_pageLocation;
 
     // Must have an updated render tree for this math to work correctly.
-    targetNode->document().updateLayoutIgnorePendingStylesheets();
+    targetNode.document().updateLayoutIgnorePendingStylesheets();
 
     // Adjust offsetLocation to be relative to the target's position.
-    if (RenderObject* r = targetNode->renderer()) {
+    if (RenderObject* r = targetNode.renderer()) {
         m_offsetLocation = LayoutPoint(r->absoluteToLocal(absoluteLocation(), UseTransforms));
-        float scaleFactor = 1 / (pageZoomFactor(this) * frameScaleFactor(this));
+        float scaleFactor = 1 / documentToAbsoluteScaleFactor();
         if (scaleFactor != 1.0f)
             m_offsetLocation.scale(scaleFactor);
     }
@@ -189,7 +174,7 @@ void MouseRelatedEvent::computeRelativePosition()
     // FIXME: event.layerX and event.layerY are poorly defined,
     // and probably don't always correspond to RenderLayer offsets.
     // https://bugs.webkit.org/show_bug.cgi?id=21868
-    Node* n = targetNode;
+    Node* n = &targetNode;
     while (n && !n->renderer())
         n = n->parentNode();
 
@@ -201,6 +186,14 @@ void MouseRelatedEvent::computeRelativePosition()
     }
 
     m_hasCachedRelativePosition = true;
+}
+
+FloatPoint MouseRelatedEvent::locationInRootViewCoordinates() const
+{
+    if (auto* frameView = frameViewFromWindowProxy(view()))
+        return frameView->contentsToRootView(roundedIntPoint(m_absoluteLocation));
+
+    return m_absoluteLocation;
 }
 
 int MouseRelatedEvent::layerX()

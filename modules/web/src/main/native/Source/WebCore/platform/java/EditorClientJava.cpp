@@ -1,6 +1,28 @@
 /*
- * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
+
 #include "config.h"
 
 #include "NotImplemented.h"
@@ -14,7 +36,6 @@
 #include "FocusController.h"
 #include "Frame.h"
 #include "FrameView.h"
-#include "htmlediting.h"
 #include <wtf/java/JavaEnv.h>
 #include "KeyboardEvent.h"
 #include "Page.h"
@@ -229,7 +250,7 @@ static const KeyPressEntry keyPressEntries[] = {
 
 const char* EditorClientJava::interpretKeyEvent(const KeyboardEvent* evt)
 {
-    const PlatformKeyboardEvent* keyEvent = evt->keyEvent();
+    const PlatformKeyboardEvent* keyEvent = evt->underlyingPlatformEvent();
     if (!keyEvent)
         return "";
 
@@ -272,11 +293,11 @@ const char* EditorClientJava::interpretKeyEvent(const KeyboardEvent* evt)
 
 bool EditorClientJava::handleEditingKeyboardEvent(KeyboardEvent* evt)
 {
-    const PlatformKeyboardEvent* keyEvent = evt->keyEvent();
+    const PlatformKeyboardEvent* keyEvent = evt->underlyingPlatformEvent();
     if (!keyEvent)
         return false;
 
-    Frame* frame = evt->target()->toNode()->document().frame();
+    Frame* frame = downcast<Node>(evt->target())->document().frame();
     if (!frame)
         return false;
 
@@ -315,8 +336,8 @@ bool EditorClientJava::handleEditingKeyboardEvent(KeyboardEvent* evt)
     // which may be configured to do it so by user.
     // See also http://en.wikipedia.org/wiki/Keyboard_Layout
     // FIXME(ukai): investigate more detail for various keyboard layout.
-    if (evt->keyEvent()->text().length() == 1) {
-        UChar ch = evt->keyEvent()->text()[0U];
+    if (evt->underlyingPlatformEvent()->text().length() == 1) {
+        UChar ch = evt->underlyingPlatformEvent()->text()[0U];
 
         // Don't insert null or control characters as they can result in
         // unexpected behaviour
@@ -326,10 +347,10 @@ bool EditorClientJava::handleEditingKeyboardEvent(KeyboardEvent* evt)
         // Don't insert ASCII character if ctrl w/o alt or meta is on.
         // On Mac, we should ignore events when meta is on (Command-<x>).
         if (ch < 0x80) {
-            if (evt->keyEvent()->ctrlKey() && !evt->keyEvent()->altKey())
+            if (evt->underlyingPlatformEvent()->ctrlKey() && !evt->underlyingPlatformEvent()->altKey())
                 return false;
 #if OS(DARWIN)
-            if (evt->keyEvent()->metaKey())
+            if (evt->underlyingPlatformEvent()->metaKey())
                 return false;
 #endif
         }
@@ -339,7 +360,7 @@ bool EditorClientJava::handleEditingKeyboardEvent(KeyboardEvent* evt)
     if (!frame->editor().canEdit())
         return false;
 
-    return frame->editor().insertText(evt->keyEvent()->text(), evt);
+    return frame->editor().insertText(evt->underlyingPlatformEvent()->text(), evt);
 }
 
 void EditorClientJava::handleKeyboardEvent(KeyboardEvent* evt)
@@ -374,7 +395,7 @@ bool EditorClientJava::isGrammarCheckingEnabled()
     return false;
 }
 
-bool EditorClientJava::isSelectTrailingWhitespaceEnabled()
+bool EditorClientJava::isSelectTrailingWhitespaceEnabled() const
 {
     notImplemented();
     return false;
@@ -430,9 +451,8 @@ void EditorClientJava::respondToChangedContents()
 
 void EditorClientJava::respondToChangedSelection(Frame *frame)
 {
-    //Frame* frame = page()->focusController()->focusedOrMainFrame();
     if (!frame || !frame->editor().hasComposition()
-        || frame->editor().ignoreCompositionSelectionChange()) {
+        || frame->editor().ignoreSelectionChanges()) {
         return;
     }
     unsigned start, end;
@@ -446,10 +466,6 @@ void EditorClientJava::respondToChangedSelection(Frame *frame)
         frame->editor().cancelComposition();
         setInputMethodState(false);
     }
-}
-
-void EditorClientJava::didChangeSelectionAndUpdateLayout() {
-    notImplemented();
 }
 
 void EditorClientJava::updateEditorStateAfterLayoutIfEditabilityChanged() {
@@ -711,6 +727,12 @@ void EditorClientJava::getGuessesForWord(const String&, const String&, const Vis
 void EditorClientJava::requestCheckingOfString(TextCheckingRequest&, const VisibleSelection&)
 {
     notImplemented();
+}
+
+String EditorClientJava::replacementURLForResource(Ref<WebCore::SharedBuffer>&&, const String&)
+{
+    notImplemented();
+    return { };
 }
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,14 +21,16 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
-*/
+ */
+
+#undef IMPL
 
 #include "config.h"
 
 #include "DOMException.h"
 #include <WebCore/DocumentType.h>
 #include <WebCore/NamedNodeMap.h>
-#include <WebCore/JSMainThreadExecState.h>
+#include <WebCore/JSExecState.h>
 
 #include <wtf/RefPtr.h>
 #include <wtf/GetPtr.h>
@@ -50,12 +52,12 @@ JNIEXPORT jstring JNICALL Java_com_sun_webkit_dom_DocumentTypeImpl_getNameImpl(J
     return JavaReturn<String>(env, IMPL->name());
 }
 
-JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_DocumentTypeImpl_getEntitiesImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_DocumentTypeImpl_getEntitiesImpl(JNIEnv*, jclass, jlong)
 {
     return 0;
 }
 
-JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_DocumentTypeImpl_getNotationsImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_DocumentTypeImpl_getNotationsImpl(JNIEnv*, jclass, jlong)
 {
     WebCore::JSMainThreadNullState state;
     return 0;
@@ -73,7 +75,7 @@ JNIEXPORT jstring JNICALL Java_com_sun_webkit_dom_DocumentTypeImpl_getSystemIdIm
     return JavaReturn<String>(env, IMPL->systemId());
 }
 
-JNIEXPORT jstring JNICALL Java_com_sun_webkit_dom_DocumentTypeImpl_getInternalSubsetImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jstring JNICALL Java_com_sun_webkit_dom_DocumentTypeImpl_getInternalSubsetImpl(JNIEnv* env, jclass, jlong)
 {
     WebCore::JSMainThreadNullState state;
     return JavaReturn<String>(env, String());

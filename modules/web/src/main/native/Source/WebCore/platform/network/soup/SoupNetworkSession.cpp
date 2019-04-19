@@ -103,7 +103,7 @@ static void authenticateCallback(SoupSession*, SoupMessage* soupMessage, SoupAut
     handle->didReceiveAuthenticationChallenge(AuthenticationChallenge(soupMessage, soupAuth, retrying, handle.get()));
 }
 
-#if ENABLE(WEB_TIMING) && !SOUP_CHECK_VERSION(2, 49, 91)
+#if !SOUP_CHECK_VERSION(2, 49, 91)
 static void requestStartedCallback(SoupSession*, SoupMessage* soupMessage, SoupSocket*, gpointer)
 {
     RefPtr<ResourceHandle> handle = static_cast<ResourceHandle*>(g_object_get_data(G_OBJECT(soupMessage), "handle"));
@@ -113,7 +113,7 @@ static void requestStartedCallback(SoupSession*, SoupMessage* soupMessage, SoupS
 }
 #endif
 
-SoupNetworkSession::SoupNetworkSession(SoupCookieJar* cookieJar)
+SoupNetworkSession::SoupNetworkSession(PAL::SessionID sessionID, SoupCookieJar* cookieJar)
     : m_soupSession(adoptGRef(soup_session_async_new()))
 {
     // Values taken from http://www.browserscope.org/ following
@@ -138,7 +138,7 @@ SoupNetworkSession::SoupNetworkSession(SoupCookieJar* cookieJar)
         SOUP_SESSION_ADD_FEATURE, jar.get(),
         SOUP_SESSION_USE_THREAD_CONTEXT, TRUE,
         SOUP_SESSION_SSL_USE_SYSTEM_CA_FILE, TRUE,
-        SOUP_SESSION_SSL_STRICT, FALSE,
+        SOUP_SESSION_SSL_STRICT, TRUE,
         nullptr);
 
     setupCustomProtocols();
@@ -147,11 +147,13 @@ SoupNetworkSession::SoupNetworkSession(SoupCookieJar* cookieJar)
         setAcceptLanguages(gInitialAcceptLanguages);
 
 #if SOUP_CHECK_VERSION(2, 53, 92)
-    if (soup_auth_negotiate_supported()) {
+    if (soup_auth_negotiate_supported() && !sessionID.isEphemeral()) {
         g_object_set(m_soupSession.get(),
             SOUP_SESSION_ADD_FEATURE_BY_TYPE, SOUP_TYPE_AUTH_NEGOTIATE,
             nullptr);
     }
+#else
+    UNUSED_PARAM(sessionID);
 #endif
 
     if (gProxySettings.mode != SoupNetworkProxySettings::Mode::Default)
@@ -159,14 +161,12 @@ SoupNetworkSession::SoupNetworkSession(SoupCookieJar* cookieJar)
     setupLogger();
 
     g_signal_connect(m_soupSession.get(), "authenticate", G_CALLBACK(authenticateCallback), nullptr);
-#if ENABLE(WEB_TIMING) && !SOUP_CHECK_VERSION(2, 49, 91)
+#if !SOUP_CHECK_VERSION(2, 49, 91)
     g_signal_connect(m_soupSession.get(), "request-started", G_CALLBACK(requestStartedCallback), nullptr);
 #endif
 }
 
-SoupNetworkSession::~SoupNetworkSession()
-{
-}
+SoupNetworkSession::~SoupNetworkSession() = default;
 
 void SoupNetworkSession::setupLogger()
 {
@@ -205,7 +205,7 @@ static inline bool stringIsNumeric(const char* str)
 // Old versions of WebKit created this cache.
 void SoupNetworkSession::clearOldSoupCache(const String& cacheDirectory)
 {
-    CString cachePath = fileSystemRepresentation(cacheDirectory);
+    CString cachePath = FileSystem::fileSystemRepresentation(cacheDirectory);
     GUniquePtr<char> cacheFile(g_build_filename(cachePath.data(), "soup.cache2", nullptr));
     if (!g_file_test(cacheFile.get(), G_FILE_TEST_IS_REGULAR))
         return;
@@ -293,29 +293,19 @@ void SoupNetworkSession::setShouldIgnoreTLSErrors(bool ignoreTLSErrors)
     gIgnoreTLSErrors = ignoreTLSErrors;
 }
 
-void SoupNetworkSession::checkTLSErrors(SoupRequest* soupRequest, SoupMessage* message, std::function<void (const ResourceError&)>&& completionHandler)
+std::optional<ResourceError> SoupNetworkSession::checkTLSErrors(const URL& requestURL, GTlsCertificate* certificate, GTlsCertificateFlags tlsErrors)
 {
-    if (gIgnoreTLSErrors) {
-        completionHandler({ });
-        return;
-    }
+    if (gIgnoreTLSErrors)
+        return std::nullopt;
 
-    GTlsCertificate* certificate = nullptr;
-    GTlsCertificateFlags tlsErrors = static_cast<GTlsCertificateFlags>(0);
-    soup_message_get_https_status(message, &certificate, &tlsErrors);
-    if (!tlsErrors) {
-        completionHandler({ });
-        return;
-    }
+    if (!tlsErrors)
+        return std::nullopt;
 
-    URL url(soup_request_get_uri(soupRequest));
-    auto it = clientCertificates().find(url.host());
-    if (it != clientCertificates().end() && it->value.contains(certificate)) {
-        completionHandler({ });
-        return;
-    }
+    auto it = clientCertificates().find(requestURL.host());
+    if (it != clientCertificates().end() && it->value.contains(certificate))
+        return std::nullopt;
 
-    completionHandler(ResourceError::tlsError(soupRequest, tlsErrors, certificate));
+    return ResourceError::tlsError(requestURL, tlsErrors, certificate);
 }
 
 void SoupNetworkSession::allowSpecificHTTPSCertificateForHost(const CertificateInfo& certificateInfo, const String& host)

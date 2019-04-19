@@ -29,7 +29,6 @@
 #pragma once
 
 #include "BasicBlockLocation.h"
-#include "MacroAssembler.h"
 #include "PutByIdFlags.h"
 #include "SymbolTable.h"
 #include "TypeLocation.h"
@@ -38,7 +37,6 @@
 #include "Structure.h"
 #include "StructureChain.h"
 #include "ToThisStatus.h"
-#include "VirtualRegister.h"
 #include <wtf/VectorTraits.h>
 
 namespace JSC {
@@ -57,9 +55,9 @@ typedef OpcodeID Opcode;
 #endif
 
 struct Instruction {
-    Instruction()
+    constexpr Instruction()
+        : u({ nullptr })
     {
-        u.jsCell.clear();
     }
 
     Instruction(Opcode opcode)
@@ -121,6 +119,7 @@ struct Instruction {
     Instruction(bool* predicatePointer) { u.predicatePointer = predicatePointer; }
 
     union {
+        void* pointer;
         Opcode opcode;
         int operand;
         unsigned unsignedValue;
@@ -139,7 +138,6 @@ struct Instruction {
         ArrayAllocationProfile* arrayAllocationProfile;
         ObjectAllocationProfile* objectAllocationProfile;
         WatchpointSet* watchpointSet;
-        void* pointer;
         bool* predicatePointer;
         ToThisStatus toThisStatus;
         TypeLocation* location;
@@ -151,6 +149,7 @@ private:
     Instruction(StructureChain*);
     Instruction(Structure*);
 };
+static_assert(sizeof(Instruction) == sizeof(void*), "");
 
 } // namespace JSC
 

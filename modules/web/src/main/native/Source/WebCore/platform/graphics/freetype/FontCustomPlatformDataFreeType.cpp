@@ -26,6 +26,8 @@
 #include "SharedBuffer.h"
 #include <cairo-ft.h>
 #include <cairo.h>
+#include <ft2build.h>
+#include FT_MODULE_H
 
 namespace WebCore {
 
@@ -35,27 +37,8 @@ static void releaseCustomFontData(void* data)
 }
 
 FontCustomPlatformData::FontCustomPlatformData(FT_Face freeTypeFace, SharedBuffer& buffer)
-    : m_fontFace(cairo_ft_font_face_create_for_ft_face(freeTypeFace, FT_LOAD_FORCE_AUTOHINT))
+    : m_fontFace(cairo_ft_font_face_create_for_ft_face(freeTypeFace, FT_LOAD_DEFAULT))
 {
-    // FT_LOAD_FORCE_AUTOHINT prohibits use of the font's native hinting. This
-    // is a safe option for custom fonts because (a) some such fonts may have
-    // broken hinting, which site admins may not notice if other browsers do not
-    // use the native hints, and (b) allowing native hints exposes the FreeType
-    // bytecode interpreter to potentially-malicious input. Treating web fonts
-    // differently than system fonts is non-ideal, but the result of autohinting
-    // is always decent, whereas native hints sometimes look terrible, and
-    // unlike system fonts where Fontconfig may change the hinting settings on a
-    // per-font basis, the same settings are used for all web fonts. Note that
-    // Chrome is considering switching from autohinting to native hinting in
-    // https://code.google.com/p/chromium/issues/detail?id=173207 but this is
-    // more risk than we want to assume for now. See
-    // https://bugs.webkit.org/show_bug.cgi?id=140994 before changing this, and
-    // also consider that (a) the fonts' native hints will all be designed to
-    // work on Windows, and might not look good at all with FreeType, whereas
-    // automatic hints will always look decent, and (b) Fontconfig is not
-    // capable of providing any per-font hinting settings for web fonts, unlike
-    // for system fonts, so it seems acceptable to treat them differently.
-
     buffer.ref(); // This is balanced by the buffer->deref() in releaseCustomFontData.
     static cairo_user_data_key_t bufferKey;
     cairo_font_face_set_user_data(m_fontFace, &bufferKey, &buffer,
@@ -65,7 +48,7 @@ FontCustomPlatformData::FontCustomPlatformData(FT_Face freeTypeFace, SharedBuffe
     // this cairo_font_face_t is destroyed, it cleans up the FreeType face as well.
     static cairo_user_data_key_t freeTypeFaceKey;
     cairo_font_face_set_user_data(m_fontFace, &freeTypeFaceKey, freeTypeFace,
-         reinterpret_cast<cairo_destroy_func_t>(FT_Done_Face));
+        reinterpret_cast<cairo_destroy_func_t>(reinterpret_cast<GCallback>(FT_Done_Face)));
 }
 
 FontCustomPlatformData::~FontCustomPlatformData()
@@ -78,10 +61,46 @@ FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription&
     return FontPlatformData(m_fontFace, description, bold, italic);
 }
 
-std::unique_ptr<FontCustomPlatformData> createFontCustomPlatformData(SharedBuffer& buffer)
+static bool initializeFreeTypeLibrary(FT_Library& library)
+{
+    // https://www.freetype.org/freetype2/docs/design/design-4.html
+    // https://lists.nongnu.org/archive/html/freetype-devel/2004-10/msg00022.html
+
+    // Workaround crash in cairo 1.16.0. See https://webkit.org/b/191595.
+    int version = cairo_version();
+    if (version >= CAIRO_VERSION_ENCODE(1, 15, 0) && version < CAIRO_VERSION_ENCODE(1, 16, 1)) {
+        FT_Init_FreeType(&library);
+        return true;
+    }
+
+    FT_Memory memory = bitwise_cast<FT_Memory>(ft_smalloc(sizeof(*memory)));
+    if (!memory)
+        return false;
+
+    memory->user = nullptr;
+    memory->alloc = [](FT_Memory, long size) -> void* {
+        return fastMalloc(size);
+    };
+    memory->free = [](FT_Memory, void* block) -> void {
+        fastFree(block);
+    };
+    memory->realloc = [](FT_Memory, long, long newSize, void* block) -> void* {
+        return fastRealloc(block, newSize);
+    };
+
+    if (FT_New_Library(memory, &library)) {
+        ft_sfree(memory);
+        return false;
+    }
+
+    FT_Add_Default_Modules(library);
+    return true;
+}
+
+std::unique_ptr<FontCustomPlatformData> createFontCustomPlatformData(SharedBuffer& buffer, const String&)
 {
     static FT_Library library;
-    if (!library && FT_Init_FreeType(&library)) {
+    if (!library && !initializeFreeTypeLibrary(library)) {
         library = nullptr;
         return nullptr;
     }

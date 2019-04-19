@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -772,13 +772,33 @@ class WindowStage extends GlassStage {
         }
     }
 
+    private boolean isClosePostponed = false;
+    private Window deadWindow = null;
+
+    @Override
+    public void postponeClose() {
+        isClosePostponed = true;
+    }
+
+    @Override
+    public void closePostponed() {
+        if (deadWindow != null) {
+            deadWindow.close();
+            deadWindow = null;
+        }
+    }
+
     @Override public void close() {
         super.close();
         QuantumToolkit.runWithRenderLock(() -> {
             // prevents closing a closed platform window
             if (platformWindow != null) {
                 platformWindows.remove(platformWindow);
-                platformWindow.close();
+                if (isClosePostponed) {
+                    deadWindow = platformWindow;
+                } else {
+                    platformWindow.close();
+                }
                 platformWindow = null;
             }
             GlassScene oldScene = getViewScene();

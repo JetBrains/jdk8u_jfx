@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005, 2006, 2007 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2017 Apple Inc. All rights reserved.
  *           (C) 2007 Graham Dennis (graham.dennis@gmail.com)
  *           (C) 2007 Eric Seidel <eric@webkit.org>
  *           (C) 2012 Patrick Ganstere <paroga@paroga.com>
@@ -37,6 +37,7 @@
 #include <wtf/Assertions.h>
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/Threading.h>
 #include <wtf/ThreadingPrimitives.h>
 #include <wtf/Vector.h>
@@ -44,24 +45,19 @@
 static const size_t javaScriptThreadsCount = 4;
 static bool javaScriptThreadsShouldTerminate;
 static JSContextGroupRef javaScriptThreadsGroup;
+static Lock javaScriptThreadsLock;
 
-static Lock& javaScriptThreadsMutex()
-{
-    DEPRECATED_DEFINE_STATIC_LOCAL(Lock, staticMutex, ());
-    return staticMutex;
-}
-
-typedef HashSet<ThreadIdentifier> ThreadSet;
+typedef HashSet<RefPtr<Thread>> ThreadSet;
 static ThreadSet& javaScriptThreads()
 {
-    DEPRECATED_DEFINE_STATIC_LOCAL(ThreadSet, staticJavaScriptThreads, ());
-    ASSERT(!javaScriptThreadsMutex().tryLock());
+    static NeverDestroyed<ThreadSet> staticJavaScriptThreads;
+    ASSERT(!javaScriptThreadsLock.tryLock());
     return staticJavaScriptThreads;
 }
 
 // This function exercises JSC in a loop until javaScriptThreadsShouldTerminate
 // becomes true or it probabilistically decides to spawn a replacement thread and exit.
-void runJavaScriptThread(void*)
+void runJavaScriptThread()
 {
     static const char* const script =
         "var array = [];"
@@ -71,26 +67,26 @@ void runJavaScriptThread(void*)
 
     JSGlobalContextRef ctx;
     {
-        LockHolder locker(javaScriptThreadsMutex());
+        auto locker = holdLock(javaScriptThreadsLock);
         ctx = JSGlobalContextCreateInGroup(javaScriptThreadsGroup, 0);
     }
 
     JSStringRef scriptRef;
     {
-        LockHolder locker(javaScriptThreadsMutex());
+        auto locker = holdLock(javaScriptThreadsLock);
         scriptRef = JSStringCreateWithUTF8CString(script);
     }
 
     while (true) {
         {
-            LockHolder locker(javaScriptThreadsMutex());
+            auto locker = holdLock(javaScriptThreadsLock);
             JSValueRef exception = 0;
             JSEvaluateScript(ctx, scriptRef, 0, 0, 1, &exception);
             ASSERT(!exception);
         }
 
         {
-            LockHolder locker(javaScriptThreadsMutex());
+            auto locker = holdLock(javaScriptThreadsLock);
             const size_t valuesCount = 1024;
             JSValueRef values[valuesCount];
             for (size_t i = 0; i < valuesCount; ++i)
@@ -98,7 +94,7 @@ void runJavaScriptThread(void*)
         }
 
         {
-            LockHolder locker(javaScriptThreadsMutex());
+            auto locker = holdLock(javaScriptThreadsLock);
             if (javaScriptThreadsShouldTerminate)
                 break;
         }
@@ -107,15 +103,15 @@ void runJavaScriptThread(void*)
         if (rand() % 5)
             continue;
 
-        LockHolder locker(javaScriptThreadsMutex());
-        ThreadIdentifier thread = currentThread();
-        detachThread(thread);
-        javaScriptThreads().remove(thread);
-        javaScriptThreads().add(createThread(&runJavaScriptThread, 0, 0));
+        auto locker = holdLock(javaScriptThreadsLock);
+        Thread& thread = Thread::current();
+        thread.detach();
+        javaScriptThreads().remove(&thread);
+        javaScriptThreads().add(Thread::create("JavaScript Thread", &runJavaScriptThread));
         break;
     }
 
-    LockHolder locker(javaScriptThreadsMutex());
+    auto locker = holdLock(javaScriptThreadsLock);
     JSStringRelease(scriptRef);
     JSGarbageCollect(ctx);
     JSGlobalContextRelease(ctx);
@@ -125,31 +121,31 @@ void startJavaScriptThreads()
 {
     javaScriptThreadsGroup = JSContextGroupCreate();
 
-    LockHolder locker(javaScriptThreadsMutex());
+    auto locker = holdLock(javaScriptThreadsLock);
 
     for (size_t i = 0; i < javaScriptThreadsCount; ++i)
-        javaScriptThreads().add(createThread(&runJavaScriptThread, 0, 0));
+        javaScriptThreads().add(Thread::create("JavaScript Thread", &runJavaScriptThread));
 }
 
 void stopJavaScriptThreads()
 {
     {
-        LockHolder locker(javaScriptThreadsMutex());
+        auto locker = holdLock(javaScriptThreadsLock);
         javaScriptThreadsShouldTerminate = true;
     }
 
-    Vector<ThreadIdentifier, javaScriptThreadsCount> threads;
+    Vector<RefPtr<Thread>, javaScriptThreadsCount> threads;
     {
-        LockHolder locker(javaScriptThreadsMutex());
-        copyToVector(javaScriptThreads(), threads);
+        auto locker = holdLock(javaScriptThreadsLock);
+        threads = copyToVector(javaScriptThreads());
         ASSERT(threads.size() == javaScriptThreadsCount);
     }
 
     for (size_t i = 0; i < javaScriptThreadsCount; ++i)
-        waitForThreadCompletion(threads[i]);
+        threads[i]->waitForCompletion();
 
     {
-        LockHolder locker(javaScriptThreadsMutex());
+        auto locker = holdLock(javaScriptThreadsLock);
         javaScriptThreads().clear();
     }
 

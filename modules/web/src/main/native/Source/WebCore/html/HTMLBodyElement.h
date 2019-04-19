@@ -28,6 +28,7 @@
 namespace WebCore {
 
 class HTMLBodyElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLBodyElement);
 public:
     static Ref<HTMLBodyElement> create(Document&);
     static Ref<HTMLBodyElement> create(const QualifiedName&, Document&);
@@ -44,7 +45,8 @@ private:
     bool isPresentationAttribute(const QualifiedName&) const final;
     void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) final;
 
-    InsertionNotificationRequest insertedInto(ContainerNode&) final;
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
+    void didFinishInsertingNode() final;
 
     bool isURLAttribute(const Attribute&) const final;
 
@@ -56,7 +58,7 @@ private:
     int scrollTop() final;
     void setScrollTop(int) final;
 
-    void scrollTo(const ScrollToOptions&) final;
+    void scrollTo(const ScrollToOptions&, ScrollClamping) final;
 
     int scrollHeight() final;
     int scrollWidth() final;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2017 Apple Inc. All Rights Reserved.
  * Copyright (C) 2013 Patrick Gansterer <paroga@paroga.com>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,20 +27,12 @@
 #ifndef WTF_StdLibExtras_h
 #define WTF_StdLibExtras_h
 
-#include <chrono>
 #include <cstring>
 #include <memory>
+#include <type_traits>
 #include <wtf/Assertions.h>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/Compiler.h>
-
-// This was used to declare and define a static local variable (static T;) so that
-//  it was leaked so that its destructors were not called at exit.
-// Newly written code should use static NeverDestroyed<T> instead.
-#ifndef DEPRECATED_DEFINE_STATIC_LOCAL
-#define DEPRECATED_DEFINE_STATIC_LOCAL(type, name, arguments) \
-    static type& name = *new type arguments
-#endif
 
 // Use this macro to declare and define a debug-only global variable that may have a
 // non-trivial constructor and destructor. When building with clang, this will suppress
@@ -149,7 +141,7 @@ inline ToType bitwise_cast(FromType from)
     static_assert(__is_trivially_copyable(FromType), "bitwise_cast of non-trivially-copyable type!");
 #endif
     typename std::remove_const<ToType>::type to { };
-    std::memcpy(&to, &from, sizeof(to));
+    std::memcpy(static_cast<void*>(&to), static_cast<void*>(&from), sizeof(to));
     return to;
 }
 
@@ -202,6 +194,12 @@ template<size_t divisor> inline constexpr size_t roundUpToMultipleOf(size_t x)
 {
     static_assert(divisor && !(divisor & (divisor - 1)), "divisor must be a power of two!");
     return roundUpToMultipleOfImpl(divisor, x);
+}
+
+template<size_t divisor, typename T> inline T* roundUpToMultipleOf(T* x)
+{
+    static_assert(sizeof(T*) == sizeof(size_t), "");
+    return reinterpret_cast<T*>(roundUpToMultipleOf<divisor>(reinterpret_cast<size_t>(x)));
 }
 
 enum BinarySearchMode {
@@ -408,6 +406,54 @@ struct RemoveCVAndReference  {
     typedef typename std::remove_cv<typename std::remove_reference<T>::type>::type type;
 };
 
+template<typename IteratorTypeLeft, typename IteratorTypeRight, typename IteratorTypeDst>
+IteratorTypeDst mergeDeduplicatedSorted(IteratorTypeLeft leftBegin, IteratorTypeLeft leftEnd, IteratorTypeRight rightBegin, IteratorTypeRight rightEnd, IteratorTypeDst dstBegin)
+{
+    IteratorTypeLeft leftIter = leftBegin;
+    IteratorTypeRight rightIter = rightBegin;
+    IteratorTypeDst dstIter = dstBegin;
+
+    if (leftIter < leftEnd && rightIter < rightEnd) {
+        for (;;) {
+            auto left = *leftIter;
+            auto right = *rightIter;
+            if (left < right) {
+                *dstIter++ = left;
+                leftIter++;
+                if (leftIter >= leftEnd)
+                    break;
+            } else if (left == right) {
+                *dstIter++ = left;
+                leftIter++;
+                rightIter++;
+                if (leftIter >= leftEnd || rightIter >= rightEnd)
+                    break;
+            } else {
+                *dstIter++ = right;
+                rightIter++;
+                if (rightIter >= rightEnd)
+                    break;
+            }
+        }
+    }
+
+    while (leftIter < leftEnd)
+        *dstIter++ = *leftIter++;
+    while (rightIter < rightEnd)
+        *dstIter++ = *rightIter++;
+
+    return dstIter;
+}
+
+// libstdc++5 does not have constexpr std::tie. Since we cannot redefine std::tie with constexpr, we define WTF::tie instead.
+// This workaround can be removed after 2019-04 and all users of WTF::tie can be converted to std::tie
+// For more info see: https://bugs.webkit.org/show_bug.cgi?id=180692 and https://gcc.gnu.org/bugzilla/show_bug.cgi?id=65978
+template <class ...Args>
+inline constexpr std::tuple<Args&...> tie(Args&... values)
+{
+    return std::tuple<Args&...>(values...);
+}
+
 } // namespace WTF
 
 // This version of placement new omits a 0 check.
@@ -420,7 +466,7 @@ inline void* operator new(size_t, NotNullTag, void* location)
 
 // This adds various C++14 features for versions of the STL that may not yet have them.
 namespace std {
-#if COMPILER(CLANG) && __cplusplus < 201305L
+#if COMPILER(CLANG) && __cplusplus < 201400L
 template<class T> struct _Unique_if {
     typedef unique_ptr<T> _Single_object;
 };
@@ -471,6 +517,57 @@ ALWAYS_INLINE constexpr typename remove_reference<T>::type&& move(T&& value)
     return move(forward<T>(value));
 }
 
+#if __cplusplus < 201703L && (!defined(_MSC_FULL_VER) || _MSC_FULL_VER < 190023918) && !defined(__cpp_lib_logical_traits)
+template<class...> struct wtf_conjunction_impl;
+template<> struct wtf_conjunction_impl<> : true_type { };
+template<class B0> struct wtf_conjunction_impl<B0> : B0 { };
+template<class B0, class B1> struct wtf_conjunction_impl<B0, B1> : conditional<B0::value, B1, B0>::type { };
+template<class B0, class B1, class B2, class... Bn> struct wtf_conjunction_impl<B0, B1, B2, Bn...> : conditional<B0::value, wtf_conjunction_impl<B1, B2, Bn...>, B0>::type { };
+template<class... _Args> struct conjunction : wtf_conjunction_impl<_Args...> { };
+#endif
+
+// Provide in_place_t when not building with -std=c++17, or when building with libstdc++ 6
+// (which doesn't define the _GLIBCXX_RELEASE macro that's been introduced in libstdc++ 7).
+#if (__cplusplus < 201703L || (defined(__GLIBCXX__) && !defined(_GLIBCXX_RELEASE))) && (!defined(_MSC_FULL_VER) || _MSC_FULL_VER < 190023918)
+
+// These are inline variable for C++17 and later.
+#define __IN_PLACE_INLINE_VARIABLE static const
+
+struct in_place_t {
+    explicit in_place_t() = default;
+};
+__IN_PLACE_INLINE_VARIABLE constexpr in_place_t in_place { };
+
+template <class T> struct in_place_type_t {
+    explicit in_place_type_t() = default;
+};
+template <class T>
+__IN_PLACE_INLINE_VARIABLE constexpr in_place_type_t<T> in_place_type { };
+
+template <size_t I> struct in_place_index_t {
+    explicit in_place_index_t() = default;
+};
+template <size_t I>
+__IN_PLACE_INLINE_VARIABLE constexpr in_place_index_t<I> in_place_index { };
+#endif // __cplusplus < 201703L
+
+enum class ZeroStatus {
+    MayBeZero,
+    NonZero
+};
+
+constexpr size_t clz(uint32_t value, ZeroStatus mightBeZero = ZeroStatus::MayBeZero)
+{
+    if (mightBeZero == ZeroStatus::MayBeZero && value) {
+#if COMPILER(MSVC)
+        return __lzcnt(value);
+#else
+        return __builtin_clz(value);
+#endif
+    }
+    return 32;
+}
+
 } // namespace std
 
 #define WTFMove(value) std::move<WTF::CheckMoveParameter>(value)
@@ -489,13 +586,9 @@ using WTF::isCompilationThread;
 using WTF::isPointerAligned;
 using WTF::isStatelessLambda;
 using WTF::is8ByteAligned;
+using WTF::mergeDeduplicatedSorted;
 using WTF::roundUpToMultipleOf;
 using WTF::safeCast;
 using WTF::tryBinarySearch;
-
-#if !COMPILER(CLANG) || __cplusplus >= 201305L
-// We normally don't want to bring in entire std namespaces, but literals are an exception.
-using namespace std::literals::chrono_literals;
-#endif
 
 #endif // WTF_StdLibExtras_h

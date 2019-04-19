@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,9 +21,11 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
-*/
+ */
 
 #include "config.h"
+
+#include <wtf/text/WTFString.h>
 
 #include "ImageObserver.h"
 #include "BufferImageJava.h"
@@ -66,11 +68,12 @@ void BufferImage::flushImageRQ(GraphicsContext& gc)
     }
 }
 
-void BufferImage::draw(GraphicsContext& gc, const FloatRect& dstRect,
-                       const FloatRect& srcRect, CompositeOperator co, BlendMode bm, ImageOrientationDescription)
+ImageDrawResult BufferImage::draw(GraphicsContext& gc, const FloatRect& dstRect,
+                       const FloatRect& srcRect, CompositeOperator co, BlendMode bm, DecodingMode, ImageOrientationDescription)
 {
     flushImageRQ(gc);
     Image::drawImage(gc, dstRect, srcRect, co, bm);
+    return ImageDrawResult::DidDraw;
 }
 
 void BufferImage::drawPattern(GraphicsContext& gc, const FloatRect& dstRect, const FloatRect& srcRect, const AffineTransform& patternTransform,

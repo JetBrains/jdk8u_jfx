@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,7 +21,9 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
-*/
+ */
+
+#undef IMPL
 
 #include "config.h"
 
@@ -29,11 +31,12 @@
 #include <WebCore/EventTarget.h>
 #include <WebCore/MouseEvent.h>
 #include <WebCore/Node.h>
-#include <WebCore/JSMainThreadExecState.h>
+#include <WebCore/JSExecState.h>
 
 #include <wtf/RefPtr.h>
 #include <wtf/GetPtr.h>
 
+#include "AbstractViewInternal.h"
 #include "JavaDOMUtils.h"
 #include <wtf/java/JavaEnv.h>
 
@@ -45,55 +48,55 @@ extern "C" {
 
 
 // Attributes
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getScreenXImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getScreenXImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->screenX();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getScreenYImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getScreenYImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->screenY();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getClientXImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getClientXImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->clientX();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getClientYImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getClientYImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->clientY();
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getCtrlKeyImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getCtrlKeyImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->ctrlKey();
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getShiftKeyImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getShiftKeyImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->shiftKey();
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getAltKeyImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getAltKeyImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->altKey();
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getMetaKeyImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getMetaKeyImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->metaKey();
 }
 
-JNIEXPORT jshort JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getButtonImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jshort JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getButtonImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->button();
@@ -105,25 +108,25 @@ JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getRelatedTargetI
     return JavaReturn<EventTarget>(env, WTF::getPtr(IMPL->relatedTarget()));
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getOffsetXImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getOffsetXImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->offsetX();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getOffsetYImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getOffsetYImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->offsetY();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getXImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getXImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->x();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getYImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_MouseEventImpl_getYImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->y();
@@ -164,7 +167,7 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_MouseEventImpl_initMouseEventImpl
     IMPL->initMouseEvent(String(env, type)
             , canBubble
             , cancelable
-            , static_cast<DOMWindow*>(jlong_to_ptr(view))
+            , toWindowProxy(static_cast<DOMWindow*>(jlong_to_ptr(view)))
             , detail
             , screenX
             , screenY

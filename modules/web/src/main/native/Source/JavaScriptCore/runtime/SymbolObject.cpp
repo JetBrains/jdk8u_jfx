@@ -33,7 +33,7 @@ namespace JSC {
 
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(SymbolObject);
 
-const ClassInfo SymbolObject::s_info = { "Symbol", &JSWrapperObject::s_info, nullptr, CREATE_METHOD_TABLE(SymbolObject) };
+const ClassInfo SymbolObject::s_info = { "Symbol", &JSWrapperObject::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(SymbolObject) };
 
 SymbolObject::SymbolObject(VM& vm, Structure* structure)
     : JSWrapperObject(vm, structure)
@@ -49,7 +49,7 @@ void SymbolObject::finishCreation(VM& vm, Symbol* symbol)
 
 String SymbolObject::toStringName(const JSObject*, ExecState*)
 {
-    return ASCIILiteral("Object");
+    return "Object"_s;
 }
 
 JSValue SymbolObject::defaultValue(const JSObject* object, ExecState*, PreferredPrimitiveType)

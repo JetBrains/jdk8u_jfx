@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,9 +27,11 @@
 
 #if ENABLE(WEBASSEMBLY)
 
+#include "JSCPoison.h"
 #include "JSDestructibleObject.h"
 #include "JSObject.h"
 #include "WasmMemory.h"
+#include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
 
 namespace JSC {
@@ -37,31 +39,37 @@ namespace JSC {
 class ArrayBuffer;
 class JSArrayBuffer;
 
-class JSWebAssemblyMemory : public JSDestructibleObject {
+class JSWebAssemblyMemory final : public JSDestructibleObject {
 public:
     typedef JSDestructibleObject Base;
 
-    static JSWebAssemblyMemory* create(VM&, Structure*, Wasm::Memory&&);
+    template<typename CellType>
+    static CompleteSubspace* subspaceFor(VM& vm)
+    {
+        // We hold onto a lot of memory, so it makes a lot of sense to be swept eagerly.
+        return &vm.eagerlySweptDestructibleObjectSpace;
+    }
+
+    static JSWebAssemblyMemory* create(ExecState*, VM&, Structure*);
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
-    DECLARE_INFO;
+    DECLARE_EXPORT_INFO;
 
-    Wasm::Memory* memory() { return &m_memory; }
+    void adopt(Ref<Wasm::Memory>&&);
+    Wasm::Memory& memory() { return m_memory.get(); }
     JSArrayBuffer* buffer(VM& vm, JSGlobalObject*);
-    Wasm::PageCount grow(ExecState*, uint32_t delta, bool shouldThrowExceptionsOnFailure);
+    Wasm::PageCount grow(VM&, ExecState*, uint32_t delta);
+    void growSuccessCallback(VM&, Wasm::PageCount oldPageCount, Wasm::PageCount newPageCount);
 
-    static ptrdiff_t offsetOfMemory() { return OBJECT_OFFSETOF(JSWebAssemblyMemory, m_memory) + Wasm::Memory::offsetOfMemory(); }
-    static ptrdiff_t offsetOfSize() { return OBJECT_OFFSETOF(JSWebAssemblyMemory, m_memory) + Wasm::Memory::offsetOfSize(); }
-
-protected:
-    JSWebAssemblyMemory(VM&, Structure*, Wasm::Memory&&);
+private:
+    JSWebAssemblyMemory(VM&, Structure*);
     void finishCreation(VM&);
     static void destroy(JSCell*);
     static void visitChildren(JSCell*, SlotVisitor&);
 
-    Wasm::Memory m_memory;
-    WriteBarrier<JSArrayBuffer> m_bufferWrapper;
-    RefPtr<ArrayBuffer> m_buffer;
+    PoisonedRef<JSWebAssemblyMemoryPoison, Wasm::Memory> m_memory;
+    PoisonedWriteBarrier<JSWebAssemblyMemoryPoison, JSArrayBuffer> m_bufferWrapper;
+    PoisonedRefPtr<JSWebAssemblyMemoryPoison, ArrayBuffer> m_buffer;
 };
 
 } // namespace JSC

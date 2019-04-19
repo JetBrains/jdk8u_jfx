@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,12 +21,14 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
-*/
+ */
+
+#undef IMPL
 
 #include "config.h"
 
 #include <WebCore/DOMWindow.h>
-#include <WebCore/JSMainThreadExecState.h>
+#include <WebCore/JSExecState.h>
 #include <WebCore/KeyboardEvent.h>
 #include <WebCore/ThreadCheck.h>
 #include <WebCore/UIEvent.h>
@@ -34,6 +36,7 @@
 
 #include <wtf/GetPtr.h>
 
+#include "AbstractViewInternal.h"
 #include "JavaDOMUtils.h"
 #include <wtf/java/JavaEnv.h>
 
@@ -48,16 +51,16 @@ extern "C" {
 JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_UIEventImpl_getViewImpl(JNIEnv* env, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
-    return JavaReturn<DOMWindow>(env, WTF::getPtr(IMPL->view()));
+    return JavaReturn<DOMWindow>(env, WTF::getPtr(toDOMWindow(IMPL->view())));
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getDetailImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getDetailImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->detail();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getKeyCodeImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getKeyCodeImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     if (is<WebCore::KeyboardEvent>(*IMPL))
@@ -65,7 +68,7 @@ JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getKeyCodeImpl(JNIEnv
     return 0;
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getCharCodeImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getCharCodeImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     if (is<WebCore::KeyboardEvent>(*IMPL))
@@ -73,31 +76,31 @@ JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getCharCodeImpl(JNIEn
     return 0;
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getLayerXImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getLayerXImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->layerX();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getLayerYImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getLayerYImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->layerY();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getPageXImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getPageXImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->pageX();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getPageYImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getPageYImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->pageY();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getWhichImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_UIEventImpl_getWhichImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->which();
@@ -116,7 +119,7 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_UIEventImpl_initUIEventImpl(JNIEn
     IMPL->initUIEvent(String(env, type)
             , canBubble
             , cancelable
-            , static_cast<DOMWindow*>(jlong_to_ptr(view))
+            , toWindowProxy(static_cast<DOMWindow*>(jlong_to_ptr(view)))
             , detail);
 }
 

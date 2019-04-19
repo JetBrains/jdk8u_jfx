@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,10 +31,7 @@ public abstract class WCFont extends Ref {
 
     public abstract WCFont deriveFont(float size);
 
-    public abstract int getOffsetForPosition(String str, float x);
-
-    public abstract WCGlyphBuffer getGlyphsAndAdvances(String str, int from,
-                                                       int to, boolean rtl);
+    public abstract WCTextRun[] getTextRuns(String str);
 
     public abstract int[] getGlyphCodes(char[] chars);
 
@@ -42,10 +39,7 @@ public abstract class WCFont extends Ref {
 
     public abstract double getGlyphWidth(int glyph);
 
-    public abstract double[] getStringBounds(String str, int from, int to,
-                                             boolean rtl);
-
-    public abstract double getStringWidth(String str);
+    public abstract float[] getGlyphBoundingBox(int glyph);
 
     /**
      * Returns a hash code value for the object.

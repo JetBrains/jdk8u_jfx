@@ -69,7 +69,7 @@ public:
     bool isAllowed() const { return m_allowGeolocation == Yes; }
 
     void positionChanged();
-    void setError(GeolocationError*);
+    void setError(GeolocationError&);
     bool shouldBlockGeolocationRequests();
 
 private:
@@ -111,8 +111,8 @@ private:
 
     bool hasListeners() const { return !m_oneShots.isEmpty() || !m_watchers.isEmpty(); }
 
-    void sendError(GeoNotifierVector&, PositionError*);
-    void sendPosition(GeoNotifierVector&, Geoposition*);
+    void sendError(GeoNotifierVector&, PositionError&);
+    void sendPosition(GeoNotifierVector&, Geoposition&);
 
     static void extractNotifiersWithCachedPosition(GeoNotifierVector& notifiers, GeoNotifierVector* cached);
     static void copyToSet(const GeoNotifierVector&, GeoNotifierSet&);
@@ -125,8 +125,8 @@ private:
     void cancelRequests(GeoNotifierVector&);
     void cancelAllRequests();
 
-    void makeSuccessCallbacks();
-    void handleError(PositionError*);
+    void makeSuccessCallbacks(Geoposition&);
+    void handleError(PositionError&);
 
     void requestPermission();
 

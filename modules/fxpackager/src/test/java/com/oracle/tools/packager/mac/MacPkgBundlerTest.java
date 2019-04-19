@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2014, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -270,6 +270,7 @@ public class MacPkgBundlerTest {
     /**
      * Build smoke test and mark it as quarantined, possibly signed
      */
+    @Ignore("JDK-8193232")
     @Test
     public void quarantinedAppTest() throws IOException, ConfigException, UnsupportedPlatformException {
 
@@ -327,6 +328,7 @@ public class MacPkgBundlerTest {
      *
      * All other values will be driven off of those two values.
      */
+    @Ignore("JDK-8193232")
     @Test
     public void minimumConfig() throws IOException, ConfigException, UnsupportedPlatformException {
         Bundler bundler = new MacPkgBundler();

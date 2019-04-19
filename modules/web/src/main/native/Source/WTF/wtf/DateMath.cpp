@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- * Copyright (C) 2006, 2007 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2017 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Google Inc. All rights reserved.
  * Copyright (C) 2007-2009 Torch Mobile, Inc.
  * Copyright (C) 2010 &yet, LLC. (nate@andyet.net)
@@ -74,10 +74,8 @@
 
 #include "Assertions.h"
 #include "ASCIICType.h"
-#include "CurrentTime.h"
 #include "MathExtras.h"
 #include "StdLibExtras.h"
-#include "StringExtras.h"
 
 #include <algorithm>
 #include <limits.h>
@@ -102,9 +100,13 @@
 #include <sys/timeb.h>
 #endif
 
-using namespace WTF;
-
 namespace WTF {
+
+// FIXME: Should this function go into StringCommon.h or some other header?
+template<unsigned length> inline bool startsWithLettersIgnoringASCIICase(const char* string, const char (&lowercaseLetters)[length])
+{
+    return equalLettersIgnoringASCIICase(string, lowercaseLetters, length - 1);
+}
 
 /* Constants */
 
@@ -462,6 +464,13 @@ static void UnixTimeToFileTime(time_t t, LPFILETIME pft)
  */
 static double calculateDSTOffset(time_t localTime, double utcOffset)
 {
+    // input is UTC so we have to shift back to local time to determine DST thus the + getUTCOffset()
+    double offsetTime = (localTime * msPerSecond) + utcOffset;
+
+    // Offset from UTC but doesn't include DST obviously
+    int offsetHour =  msToHours(offsetTime);
+    int offsetMinute =  msToMinutes(offsetTime);
+
 #if OS(WINDOWS)
     FILETIME utcFileTime;
     UnixTimeToFileTime(localTime, &utcFileTime);
@@ -471,39 +480,18 @@ static double calculateDSTOffset(time_t localTime, double utcOffset)
     if (!::SystemTimeToTzSpecificLocalTime(nullptr, &utcSystemTime, &localSystemTime))
         return 0;
 
-    double offsetTime = (localTime * msPerSecond) + utcOffset;
-
-    // Offset from UTC but doesn't include DST obviously
-    int offsetHour =  msToHours(offsetTime);
-    int offsetMinute =  msToMinutes(offsetTime);
-
     double diff = ((localSystemTime.wHour - offsetHour) * secondsPerHour) + ((localSystemTime.wMinute - offsetMinute) * 60);
-
-// See: https://bugs.webkit.org/show_bug.cgi?id=137003
-#if PLATFORM(JAVA)
-    if (diff < 0)
-        diff += secondsPerDay;
-#endif
-
-    return diff * msPerSecond;
 #else
-    //input is UTC so we have to shift back to local time to determine DST thus the + getUTCOffset()
-    double offsetTime = (localTime * msPerSecond) + utcOffset;
-
-    // Offset from UTC but doesn't include DST obviously
-    int offsetHour =  msToHours(offsetTime);
-    int offsetMinute =  msToMinutes(offsetTime);
-
     tm localTM;
     getLocalTime(&localTime, &localTM);
 
     double diff = ((localTM.tm_hour - offsetHour) * secondsPerHour) + ((localTM.tm_min - offsetMinute) * 60);
+#endif
 
     if (diff < 0)
         diff += secondsPerDay;
 
     return (diff * msPerSecond);
-#endif
 }
 
 #endif
@@ -569,7 +557,14 @@ static inline double ymdhmsToSeconds(int year, long mon, long day, long hour, lo
     int mday = firstDayOfMonth[isLeapYear(year)][mon - 1];
     double ydays = daysFrom1970ToYear(year);
 
-    return (second + minute * secondsPerMinute + hour * secondsPerHour + (mday + day - 1 + ydays) * secondsPerDay);
+    double dateSeconds = second + minute * secondsPerMinute + hour * secondsPerHour + (mday + day - 1 + ydays) * secondsPerDay;
+
+    // Clamp to EcmaScript standard (ecma262/#sec-time-values-and-time-range) of
+    //  +/- 100,000,000 days from 01 January, 1970.
+    if (dateSeconds < -8640000000000.0 || dateSeconds > 8640000000000.0)
+        return std::numeric_limits<double>::quiet_NaN();
+
+    return dateSeconds;
 }
 
 // We follow the recommendation of RFC 2822 to consider all
@@ -580,17 +575,17 @@ static const struct KnownZone {
 #endif
         char tzName[4];
     int tzOffset;
-} known_zones[] = {
-    { "UT", 0 },
-    { "GMT", 0 },
-    { "EST", -300 },
-    { "EDT", -240 },
-    { "CST", -360 },
-    { "CDT", -300 },
-    { "MST", -420 },
-    { "MDT", -360 },
-    { "PST", -480 },
-    { "PDT", -420 }
+} knownZones[] = {
+    { "ut", 0 },
+    { "gmt", 0 },
+    { "est", -300 },
+    { "edt", -240 },
+    { "cst", -360 },
+    { "cdt", -300 },
+    { "mst", -420 },
+    { "mdt", -360 },
+    { "pst", -480 },
+    { "pdt", -420 }
 };
 
 inline static void skipSpacesAndComments(const char*& s)
@@ -790,7 +785,7 @@ static char* parseES5TimePortion(char* currentPosition, long& hours, long& minut
 
 double parseES5DateFromNullTerminatedCharacters(const char* dateString)
 {
-    // This parses a date of the form defined in ECMA-262-5, section 15.9.1.15
+    // This parses a date of the form defined in ecma262/#sec-date-time-string-format
     // (similar to RFC 3339 / ISO 8601: YYYY-MM-DDTHH:mm:ss[.sss]Z).
     // In most cases it is intentionally strict (e.g. correct field widths, no stray whitespace).
 
@@ -897,13 +892,10 @@ double parseDateFromNullTerminatedCharacters(const char* dateString, bool& haveT
         return std::numeric_limits<double>::quiet_NaN();
     dateString = newPosStr;
 
-    if (!*dateString)
-        return std::numeric_limits<double>::quiet_NaN();
-
     if (day < 0)
         return std::numeric_limits<double>::quiet_NaN();
 
-    int year = 0;
+    std::optional<int> year;
     if (day > 31) {
         // ### where is the boundary and what happens below?
         if (*dateString != '/')
@@ -967,9 +959,11 @@ double parseDateFromNullTerminatedCharacters(const char* dateString, bool& haveT
         return std::numeric_limits<double>::quiet_NaN();
 
     // '99 23:12:40 GMT'
-    if (year <= 0 && *dateString) {
-        if (!parseInt(dateString, &newPosStr, 10, &year))
+    if (*dateString && !year) {
+        int result = 0;
+        if (!parseInt(dateString, &newPosStr, 10, &result))
             return std::numeric_limits<double>::quiet_NaN();
+        year = result;
     }
 
     // Don't fail if the time is missing.
@@ -984,7 +978,7 @@ double parseDateFromNullTerminatedCharacters(const char* dateString, bool& haveT
             if (*newPosStr != ':')
                 return std::numeric_limits<double>::quiet_NaN();
             // There was no year; the number was the hour.
-            year = -1;
+            year = std::nullopt;
         } else {
             // in the normal case (we parsed the year), advance to the next number
             dateString = ++newPosStr;
@@ -1035,14 +1029,14 @@ double parseDateFromNullTerminatedCharacters(const char* dateString, bool& haveT
 
             skipSpacesAndComments(dateString);
 
-            if (strncasecmp(dateString, "AM", 2) == 0) {
+            if (startsWithLettersIgnoringASCIICase(dateString, "am")) {
                 if (hour > 12)
                     return std::numeric_limits<double>::quiet_NaN();
                 if (hour == 12)
                     hour = 0;
                 dateString += 2;
                 skipSpacesAndComments(dateString);
-            } else if (strncasecmp(dateString, "PM", 2) == 0) {
+            } else if (startsWithLettersIgnoringASCIICase(dateString, "pm")) {
                 if (hour > 12)
                     return std::numeric_limits<double>::quiet_NaN();
                 if (hour != 12)
@@ -1054,9 +1048,11 @@ double parseDateFromNullTerminatedCharacters(const char* dateString, bool& haveT
     }
 
     // The year may be after the time but before the time zone.
-    if (isASCIIDigit(*dateString) && year == -1) {
-        if (!parseInt(dateString, &newPosStr, 10, &year))
+    if (isASCIIDigit(*dateString) && !year) {
+        int result = 0;
+        if (!parseInt(dateString, &newPosStr, 10, &result))
             return std::numeric_limits<double>::quiet_NaN();
+        year = result;
         dateString = newPosStr;
         skipSpacesAndComments(dateString);
     }
@@ -1064,7 +1060,7 @@ double parseDateFromNullTerminatedCharacters(const char* dateString, bool& haveT
     // Don't fail if the time zone is missing.
     // Some websites omit the time zone (4275206).
     if (*dateString) {
-        if (strncasecmp(dateString, "GMT", 3) == 0 || strncasecmp(dateString, "UTC", 3) == 0) {
+        if (startsWithLettersIgnoringASCIICase(dateString, "gmt") || startsWithLettersIgnoringASCIICase(dateString, "utc")) {
             dateString += 3;
             haveTZ = true;
         }
@@ -1095,10 +1091,13 @@ double parseDateFromNullTerminatedCharacters(const char* dateString, bool& haveT
             }
             haveTZ = true;
         } else {
-            for (size_t i = 0; i < WTF_ARRAY_LENGTH(known_zones); ++i) {
-                if (0 == strncasecmp(dateString, known_zones[i].tzName, strlen(known_zones[i].tzName))) {
-                    offset = known_zones[i].tzOffset;
-                    dateString += strlen(known_zones[i].tzName);
+            for (auto& knownZone : knownZones) {
+                // Since the passed-in length is used for both strings, the following checks that
+                // dateString has the time zone name as a prefix, not that it is equal.
+                auto length = strlen(knownZone.tzName);
+                if (equalLettersIgnoringASCIICase(dateString, knownZone.tzName, length)) {
+                    offset = knownZone.tzOffset;
+                    dateString += length;
                     haveTZ = true;
                     break;
                 }
@@ -1108,9 +1107,11 @@ double parseDateFromNullTerminatedCharacters(const char* dateString, bool& haveT
 
     skipSpacesAndComments(dateString);
 
-    if (*dateString && year == -1) {
-        if (!parseInt(dateString, &newPosStr, 10, &year))
+    if (*dateString && !year) {
+        int result = 0;
+        if (!parseInt(dateString, &newPosStr, 10, &result))
             return std::numeric_limits<double>::quiet_NaN();
+        year = result;
         dateString = newPosStr;
         skipSpacesAndComments(dateString);
     }
@@ -1120,14 +1121,28 @@ double parseDateFromNullTerminatedCharacters(const char* dateString, bool& haveT
         return std::numeric_limits<double>::quiet_NaN();
 
     // Y2K: Handle 2 digit years.
-    if (year >= 0 && year < 100) {
-        if (year < 50)
-            year += 2000;
-        else
-            year += 1900;
+    if (year) {
+        int yearValue = year.value();
+        if (yearValue >= 0 && yearValue < 100) {
+            if (yearValue < 50)
+                yearValue += 2000;
+            else
+                yearValue += 1900;
+        }
+        year = yearValue;
+    } else {
+        // We select 2000 as default value. This is because of the following reasons.
+        // 1. Year 2000 was used for the initial value of the variable `year`. While it won't be posed to users in WebKit,
+        //    V8 used this 2000 as its default value. (As of April 2017, V8 is using the year 2001 and Spider Monkey is
+        //    not doing this kind of fallback.)
+        // 2. It is a leap year. When using `new Date("Feb 29")`, we assume that people want to save month and day.
+        //    Leap year can save user inputs if they is valid. If we use the current year instead, the current year
+        //    may not be a leap year. In that case, `new Date("Feb 29").getMonth()` becomes 2 (March).
+        year = 2000;
     }
+    ASSERT(year);
 
-    return ymdhmsToSeconds(year, month + 1, day, hour, minute, second) * msPerSecond;
+    return ymdhmsToSeconds(year.value(), month + 1, day, hour, minute, second) * msPerSecond;
 }
 
 double parseDateFromNullTerminatedCharacters(const char* dateString)
@@ -1147,11 +1162,9 @@ double parseDateFromNullTerminatedCharacters(const char* dateString)
 
 double timeClip(double t)
 {
-    if (!std::isfinite(t))
+    if (std::abs(t) > maxECMAScriptTime)
         return std::numeric_limits<double>::quiet_NaN();
-    if (fabs(t) > maxECMAScriptTime)
-        return std::numeric_limits<double>::quiet_NaN();
-    return trunc(t);
+    return std::trunc(t) + 0.0;
 }
 
 // See http://tools.ietf.org/html/rfc2822#section-3.3 for more information.

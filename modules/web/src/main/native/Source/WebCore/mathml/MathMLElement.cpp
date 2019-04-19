@@ -32,13 +32,17 @@
 #if ENABLE(MATHML)
 
 #include "EventHandler.h"
+#include "FrameLoader.h"
 #include "HTMLAnchorElement.h"
 #include "HTMLParserIdioms.h"
 #include "MathMLNames.h"
 #include "MouseEvent.h"
 #include "RenderTableCell.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(MathMLElement);
 
 using namespace MathMLNames;
 
@@ -166,15 +170,7 @@ bool MathMLElement::canStartSelection() const
     return hasEditableStyle();
 }
 
-bool MathMLElement::isFocusable() const
-{
-    if (renderer() && renderer()->absoluteClippedOverflowRect().isEmpty())
-        return false;
-
-    return StyledElement::isFocusable();
-}
-
-bool MathMLElement::isKeyboardFocusable(KeyboardEvent& event) const
+bool MathMLElement::isKeyboardFocusable(KeyboardEvent* event) const
 {
     if (isFocusable() && StyledElement::supportsFocus())
         return StyledElement::isKeyboardFocusable(event);

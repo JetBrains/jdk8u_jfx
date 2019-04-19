@@ -26,8 +26,10 @@
 #include "config.h"
 #include "PixelBufferConformerCV.h"
 
+#if HAVE(CORE_VIDEO)
+
 #include "GraphicsContextCG.h"
-#include "SoftLinking.h"
+#include <wtf/SoftLinking.h>
 
 #include "CoreVideoSoftLink.h"
 
@@ -72,6 +74,24 @@ static void CVPixelBufferReleaseInfoCallback(void* info)
     CFRelease(pixelBuffer);
 }
 
+RetainPtr<CVPixelBufferRef> PixelBufferConformerCV::convert(CVPixelBufferRef rawBuffer)
+{
+#if USE(VIDEOTOOLBOX)
+    RetainPtr<CVPixelBufferRef> buffer { rawBuffer };
+
+    if (!VTPixelBufferConformerIsConformantPixelBuffer(m_pixelConformer.get(), buffer.get())) {
+        CVPixelBufferRef outputBuffer = nullptr;
+        OSStatus status = VTPixelBufferConformerCopyConformedPixelBuffer(m_pixelConformer.get(), buffer.get(), false, &outputBuffer);
+        if (status != noErr || !outputBuffer)
+            return nullptr;
+        return adoptCF(outputBuffer);
+    }
+#else
+    UNUSED_PARAM(rawBuffer);
+#endif
+    return nullptr;
+}
+
 RetainPtr<CGImageRef> PixelBufferConformerCV::createImageFromPixelBuffer(CVPixelBufferRef rawBuffer)
 {
     RetainPtr<CVPixelBufferRef> buffer { rawBuffer };
@@ -100,3 +120,5 @@ RetainPtr<CGImageRef> PixelBufferConformerCV::createImageFromPixelBuffer(CVPixel
 }
 
 }
+
+#endif // HAVE(CORE_VIDEO)

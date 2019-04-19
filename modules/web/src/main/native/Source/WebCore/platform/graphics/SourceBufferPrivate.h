@@ -42,11 +42,11 @@ class SourceBufferPrivateClient;
 
 class SourceBufferPrivate : public RefCounted<SourceBufferPrivate> {
 public:
-    virtual ~SourceBufferPrivate() { }
+    virtual ~SourceBufferPrivate() = default;
 
     virtual void setClient(SourceBufferPrivateClient*) = 0;
 
-    virtual void append(const unsigned char* data, unsigned length) = 0;
+    virtual void append(Vector<unsigned char>&&) = 0;
     virtual void abort() = 0;
     virtual void resetParserState() = 0;
     virtual void removedFromMediaSource() = 0;
@@ -56,6 +56,7 @@ public:
 
     virtual void flush(const AtomicString&) { }
     virtual void enqueueSample(Ref<MediaSample>&&, const AtomicString&) { }
+    virtual void allSamplesInTrackEnqueued(const AtomicString&) { }
     virtual bool isReadyForMoreSamples(const AtomicString&) { return false; }
     virtual void setActive(bool) { }
     virtual void stopAskingForMoreSamples(const AtomicString&) { }

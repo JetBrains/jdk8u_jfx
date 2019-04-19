@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -323,7 +323,7 @@ public class WinAppBundler extends AbstractImageBundler {
         AtomicReference<IOException> ioe = new AtomicReference<>();
         final String finalVsVer = vsVer;
         Files.list(jreDir.toPath().resolve("bin"))
-                .filter(p -> Pattern.matches("(vcruntime|msvcp)\\d\\d\\d.dll", p.toFile().getName().toLowerCase()))
+                .filter(p -> Pattern.matches("^(vcruntime|msvcp|msvcr|ucrtbase|api-ms-win-).*\\.dll$", p.toFile().getName().toLowerCase()))
                 .filter(p -> !p.toString().toLowerCase().endsWith(finalVsVer + ".dll"))
                 .forEach(p -> {
                     try {

@@ -34,10 +34,13 @@
 #include "HTMLAttachmentElement.h"
 #include "RenderTheme.h"
 #include "URL.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 
 using namespace HTMLNames;
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderAttachment);
 
 RenderAttachment::RenderAttachment(HTMLAttachmentElement& element, RenderStyle&& style)
     : RenderReplaced(element, WTFMove(style), LayoutSize())
@@ -68,6 +71,13 @@ void RenderAttachment::invalidate()
 int RenderAttachment::baselinePosition(FontBaseline, bool, LineDirectionMode, LinePositionMode) const
 {
     return theme().attachmentBaseline(*this);
+}
+
+bool RenderAttachment::shouldDrawBorder() const
+{
+    if (style().appearance() == BorderlessAttachmentPart)
+        return false;
+    return m_shouldDrawBorder;
 }
 
 } // namespace WebCore

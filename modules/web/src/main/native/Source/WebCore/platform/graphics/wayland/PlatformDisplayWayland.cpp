@@ -52,28 +52,39 @@ const struct wl_registry_listener PlatformDisplayWayland::s_registryListener = {
 
 std::unique_ptr<PlatformDisplay> PlatformDisplayWayland::create()
 {
-    struct wl_display* display = wl_display_connect(getenv("DISPLAY"));
+    struct wl_display* display = wl_display_connect(nullptr);
     if (!display)
         return nullptr;
 
-    return std::make_unique<PlatformDisplayWayland>(display, NativeDisplayOwned::Yes);
+    auto platformDisplay = std::unique_ptr<PlatformDisplayWayland>(new PlatformDisplayWayland(display, NativeDisplayOwned::Yes));
+    platformDisplay->initialize();
+    return WTFMove(platformDisplay);
+}
+
+std::unique_ptr<PlatformDisplay> PlatformDisplayWayland::create(struct wl_display* display)
+{
+    auto platformDisplay = std::unique_ptr<PlatformDisplayWayland>(new PlatformDisplayWayland(display, NativeDisplayOwned::No));
+    platformDisplay->initialize();
+    return WTFMove(platformDisplay);
 }
 
 PlatformDisplayWayland::PlatformDisplayWayland(struct wl_display* display, NativeDisplayOwned displayOwned)
     : PlatformDisplay(displayOwned)
+    , m_display(display)
 {
-    initialize(display);
 }
 
 PlatformDisplayWayland::~PlatformDisplayWayland()
 {
-    if (m_nativeDisplayOwned == NativeDisplayOwned::Yes)
-        wl_display_destroy(m_display);
+    if (m_nativeDisplayOwned == NativeDisplayOwned::Yes) {
+        m_compositor = nullptr;
+        m_registry = nullptr;
+        wl_display_disconnect(m_display);
+    }
 }
 
-void PlatformDisplayWayland::initialize(wl_display* display)
+void PlatformDisplayWayland::initialize()
 {
-    m_display = display;
     if (!m_display)
         return;
 

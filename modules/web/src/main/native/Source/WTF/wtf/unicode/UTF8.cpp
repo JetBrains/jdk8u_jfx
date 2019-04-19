@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2014 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007, 2014 Apple Inc. All rights reserved.
  * Copyright (C) 2010 Patrick Gansterer <paroga@paroga.com>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,7 @@
 #include "UTF8.h"
 
 #include "ASCIICType.h"
-#include <wtf/Hasher.h>
+#include <wtf/text/StringHasher.h>
 #include <wtf/unicode/CharacterNames.h>
 
 namespace WTF {
@@ -126,8 +126,8 @@ int decodeUTF8Sequence(const char* sequence)
 static const unsigned char firstByteMark[7] = { 0x00, 0x00, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC };
 
 ConversionResult convertLatin1ToUTF8(
-                                     const LChar** sourceStart, const LChar* sourceEnd,
-                                     char** targetStart, char* targetEnd)
+    const LChar** sourceStart, const LChar* sourceEnd,
+    char** targetStart, char* targetEnd)
 {
     ConversionResult result = conversionOK;
     const LChar* source = *sourceStart;

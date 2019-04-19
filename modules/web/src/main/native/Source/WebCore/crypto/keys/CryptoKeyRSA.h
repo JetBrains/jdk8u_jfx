@@ -36,54 +36,20 @@ typedef struct _CCRSACryptor *CCRSACryptorRef;
 typedef CCRSACryptorRef PlatformRSAKey;
 #endif
 
-#if PLATFORM(GTK)
-typedef struct _PlatformRSAKeyGnuTLS PlatformRSAKeyGnuTLS;
-typedef PlatformRSAKeyGnuTLS *PlatformRSAKey;
+#if PLATFORM(GTK) || PLATFORM(WPE)
+// gcry_sexp* equates gcry_sexp_t.
+struct gcry_sexp;
+typedef gcry_sexp* PlatformRSAKey;
 #endif
 
 namespace WebCore {
 
-class CryptoKeyDataRSAComponents;
+class CryptoKeyRSAComponents;
 class PromiseWrapper;
 class ScriptExecutionContext;
 
 struct CryptoKeyPair;
 struct JsonWebKey;
-
-class RsaKeyAlgorithm : public KeyAlgorithm {
-public:
-    RsaKeyAlgorithm(const String& name, size_t modulusLength, Vector<uint8_t>&& publicExponent)
-        : KeyAlgorithm(name)
-        , m_modulusLength(modulusLength)
-        , m_publicExponent(WTFMove(publicExponent))
-    {
-    }
-
-    KeyAlgorithmClass keyAlgorithmClass() const override { return KeyAlgorithmClass::RSA; }
-
-    size_t modulusLength() const { return m_modulusLength; }
-    const Vector<uint8_t>& publicExponent() const { return m_publicExponent; }
-
-private:
-    size_t m_modulusLength;
-    Vector<uint8_t> m_publicExponent;
-};
-
-class RsaHashedKeyAlgorithm final : public RsaKeyAlgorithm {
-public:
-    RsaHashedKeyAlgorithm(const String& name, size_t modulusLength, Vector<uint8_t>&& publicExponent, const String& hash)
-        : RsaKeyAlgorithm(name, modulusLength, WTFMove(publicExponent))
-        , m_hash(hash)
-    {
-    }
-
-    KeyAlgorithmClass keyAlgorithmClass() const final { return KeyAlgorithmClass::HRSA; }
-
-    const String& hash() const { return m_hash; }
-
-private:
-    String m_hash;
-};
 
 class CryptoKeyRSA final : public CryptoKey {
 public:
@@ -91,7 +57,7 @@ public:
     {
         return adoptRef(*new CryptoKeyRSA(identifier, hash, hasHash, type, platformKey, extractable, usage));
     }
-    static RefPtr<CryptoKeyRSA> create(CryptoAlgorithmIdentifier, CryptoAlgorithmIdentifier hash, bool hasHash, const CryptoKeyDataRSAComponents&, bool extractable, CryptoKeyUsageBitmap);
+    static RefPtr<CryptoKeyRSA> create(CryptoAlgorithmIdentifier, CryptoAlgorithmIdentifier hash, bool hasHash, const CryptoKeyRSAComponents&, bool extractable, CryptoKeyUsageBitmap);
     virtual ~CryptoKeyRSA();
 
     bool isRestrictedToHash(CryptoAlgorithmIdentifier&) const;
@@ -110,6 +76,8 @@ public:
     ExceptionOr<Vector<uint8_t>> exportSpki() const;
     ExceptionOr<Vector<uint8_t>> exportPkcs8() const;
 
+    std::unique_ptr<CryptoKeyRSAComponents> exportData() const;
+
     CryptoAlgorithmIdentifier hashAlgorithmIdentifier() const { return m_hash; }
 
 private:
@@ -117,8 +85,7 @@ private:
 
     CryptoKeyClass keyClass() const final { return CryptoKeyClass::RSA; }
 
-    std::unique_ptr<KeyAlgorithm> buildAlgorithm() const final;
-    std::unique_ptr<CryptoKeyData> exportData() const final;
+    KeyAlgorithm algorithm() const final;
 
     PlatformRSAKey m_platformKey;
 
@@ -129,9 +96,5 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_KEY(CryptoKeyRSA, CryptoKeyClass::RSA)
-
-SPECIALIZE_TYPE_TRAITS_KEY_ALGORITHM(RsaKeyAlgorithm, KeyAlgorithmClass::RSA)
-
-SPECIALIZE_TYPE_TRAITS_KEY_ALGORITHM(RsaHashedKeyAlgorithm, KeyAlgorithmClass::HRSA)
 
 #endif // ENABLE(SUBTLE_CRYPTO)

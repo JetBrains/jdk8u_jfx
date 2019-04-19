@@ -27,6 +27,7 @@
 #include "EventListener.h"
 #include "Frame.h"
 #include "FrameLoader.h"
+#include "Page.h"
 #include "SMILTimeContainer.h"
 #include "SVGElement.h"
 #include "SVGResourcesCache.h"
@@ -34,24 +35,24 @@
 #include "SVGSVGElement.h"
 #include "ScriptableDocumentParser.h"
 #include "ShadowRoot.h"
-#include "XLinkNames.h"
 #include <wtf/text/AtomicString.h>
 
 namespace WebCore {
 
-SVGDocumentExtensions::SVGDocumentExtensions(Document* document)
+SVGDocumentExtensions::SVGDocumentExtensions(Document& document)
     : m_document(document)
     , m_resourcesCache(std::make_unique<SVGResourcesCache>())
+    , m_areAnimationsPaused(!document.page() || !document.page()->isVisible())
 {
 }
 
-SVGDocumentExtensions::~SVGDocumentExtensions()
-{
-}
+SVGDocumentExtensions::~SVGDocumentExtensions() = default;
 
 void SVGDocumentExtensions::addTimeContainer(SVGSVGElement* element)
 {
     m_timeContainers.add(element);
+    if (m_areAnimationsPaused)
+        element->pauseAnimations();
 }
 
 void SVGDocumentExtensions::removeTimeContainer(SVGSVGElement* element)
@@ -124,10 +125,10 @@ void SVGDocumentExtensions::dispatchSVGLoadEventToOutermostSVGElements()
     }
 }
 
-static void reportMessage(Document* document, MessageLevel level, const String& message)
+static void reportMessage(Document& document, MessageLevel level, const String& message)
 {
-    if (document->frame())
-        document->addConsoleMessage(MessageSource::Rendering, level, message);
+    if (document.frame())
+        document.addConsoleMessage(MessageSource::Rendering, level, message);
 }
 
 void SVGDocumentExtensions::reportWarning(const String& message)
@@ -260,7 +261,7 @@ void SVGDocumentExtensions::markPendingResourcesForRemoval(const AtomicString& i
         m_pendingResourcesForRemoval.add(id, WTFMove(existing));
 }
 
-Element* SVGDocumentExtensions::removeElementFromPendingResourcesForRemovalMap(const AtomicString& id)
+RefPtr<Element> SVGDocumentExtensions::removeElementFromPendingResourcesForRemovalMap(const AtomicString& id)
 {
     if (id.isEmpty())
         return 0;
@@ -270,7 +271,7 @@ Element* SVGDocumentExtensions::removeElementFromPendingResourcesForRemovalMap(c
         return 0;
 
     auto firstElement = resourceSet->begin();
-    Element* element = *firstElement;
+    RefPtr<Element> element = *firstElement;
 
     resourceSet->remove(firstElement);
 
@@ -324,7 +325,7 @@ void SVGDocumentExtensions::rebuildElements()
 {
     Vector<SVGElement*> shadowRebuildElements = WTFMove(m_rebuildElements);
     for (auto* element : shadowRebuildElements)
-        element->svgAttributeChanged(XLinkNames::hrefAttr);
+        element->svgAttributeChanged(SVGNames::hrefAttr);
 }
 
 void SVGDocumentExtensions::clearTargetDependencies(SVGElement& referencedElement)
@@ -354,7 +355,7 @@ void SVGDocumentExtensions::rebuildAllElementReferencesForTarget(SVGElement& ref
         elementsToRebuild.uncheckedAppend(element);
 
     for (auto* element : elementsToRebuild)
-        element->svgAttributeChanged(XLinkNames::hrefAttr);
+        element->svgAttributeChanged(SVGNames::hrefAttr);
 }
 
 void SVGDocumentExtensions::removeAllElementReferencesForTarget(SVGElement* referencedElement)

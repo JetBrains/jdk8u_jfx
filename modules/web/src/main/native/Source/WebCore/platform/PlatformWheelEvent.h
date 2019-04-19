@@ -48,7 +48,7 @@ enum PlatformWheelEventGranularity : uint8_t {
     ScrollByPixelWheelEvent,
 };
 
-#if PLATFORM(COCOA)
+#if ENABLE(ASYNC_SCROLLING)
 
 enum PlatformWheelEventPhase : uint8_t {
     PlatformWheelEventPhaseNone = 0,
@@ -62,6 +62,17 @@ enum PlatformWheelEventPhase : uint8_t {
 
 #endif
 
+#if PLATFORM(WIN)
+// How many pixels should we scroll per line? Gecko uses the height of the
+// current line, which means scroll distance changes as you go through the
+// page or go to different pages. IE 7 is ~50 px/line, although the value
+// seems to vary slightly by page and zoom level. Since IE 7 has a
+// smoothing algorithm on scrolling, it can get away with slightly larger
+// scroll values without feeling jerky. Here we use 100 px per three lines
+// (the default scroll amount on Windows is three lines per wheel tick).
+const float cScrollbarPixelsPerLine = 100.0f / 3.0f;
+#endif
+
 class PlatformWheelEvent : public PlatformEvent {
 public:
     PlatformWheelEvent()
@@ -70,7 +81,7 @@ public:
     }
 
     PlatformWheelEvent(IntPoint position, IntPoint globalPosition, float deltaX, float deltaY, float wheelTicksX, float wheelTicksY, PlatformWheelEventGranularity granularity, bool shiftKey, bool ctrlKey, bool altKey, bool metaKey)
-        : PlatformEvent(PlatformEvent::Wheel, shiftKey, ctrlKey, altKey, metaKey, 0)
+        : PlatformEvent(PlatformEvent::Wheel, shiftKey, ctrlKey, altKey, metaKey, { })
         , m_position(position)
         , m_globalPosition(globalPosition)
         , m_deltaX(deltaX)
@@ -81,13 +92,11 @@ public:
     {
     }
 
-    PlatformWheelEvent copyTurningVerticalTicksIntoHorizontalTicks() const
+    PlatformWheelEvent copySwappingDirection() const
     {
         PlatformWheelEvent copy = *this;
-        copy.m_deltaX = copy.m_deltaY;
-        copy.m_deltaY = 0;
-        copy.m_wheelTicksX = copy.m_wheelTicksY;
-        copy.m_wheelTicksY = 0;
+        std::swap(copy.m_deltaX, copy.m_deltaY);
+        std::swap(copy.m_wheelTicksX, copy.m_wheelTicksY);
         return copy;
     }
 
@@ -117,24 +126,31 @@ public:
 
 #if PLATFORM(GTK)
     explicit PlatformWheelEvent(GdkEventScroll*);
+    FloatPoint swipeVelocity() const;
 #endif
 
 #if PLATFORM(COCOA)
     bool hasPreciseScrollingDeltas() const { return m_hasPreciseScrollingDeltas; }
     void setHasPreciseScrollingDeltas(bool hasPreciseScrollingDeltas) { m_hasPreciseScrollingDeltas = hasPreciseScrollingDeltas; }
-    PlatformWheelEventPhase phase() const { return m_phase; }
-    PlatformWheelEventPhase momentumPhase() const { return m_momentumPhase; }
     unsigned scrollCount() const { return m_scrollCount; }
     float unacceleratedScrollingDeltaX() const { return m_unacceleratedScrollingDeltaX; }
     float unacceleratedScrollingDeltaY() const { return m_unacceleratedScrollingDeltaY; }
+#endif
+
+#if ENABLE(ASYNC_SCROLLING)
     bool useLatchedEventElement() const;
     bool shouldConsiderLatching() const;
     bool shouldResetLatching() const;
     bool isEndOfMomentumScroll() const;
-    bool isEndOfNonMomentumScroll() const;
-    bool isTransitioningToMomentumScroll() const;
 #else
     bool useLatchedEventElement() const { return false; }
+#endif
+
+#if ENABLE(ASYNC_SCROLLING)
+    PlatformWheelEventPhase phase() const { return m_phase; }
+    PlatformWheelEventPhase momentumPhase() const { return m_momentumPhase; }
+    bool isEndOfNonMomentumScroll() const;
+    bool isTransitioningToMomentumScroll() const;
 #endif
 
 #if PLATFORM(WIN)
@@ -161,17 +177,19 @@ protected:
     // Scrolling velocity in pixels per second.
     FloatSize m_scrollingVelocity;
 
-#if PLATFORM(COCOA)
-    bool m_hasPreciseScrollingDeltas { false };
+#if ENABLE(ASYNC_SCROLLING)
     PlatformWheelEventPhase m_phase { PlatformWheelEventPhaseNone };
     PlatformWheelEventPhase m_momentumPhase { PlatformWheelEventPhaseNone };
+#endif
+#if PLATFORM(COCOA)
+    bool m_hasPreciseScrollingDeltas { false };
     unsigned m_scrollCount { 0 };
     float m_unacceleratedScrollingDeltaX { 0 };
     float m_unacceleratedScrollingDeltaY { 0 };
 #endif
 };
 
-#if PLATFORM(COCOA)
+#if ENABLE(ASYNC_SCROLLING)
 
 inline bool PlatformWheelEvent::useLatchedEventElement() const
 {
@@ -197,6 +215,10 @@ inline bool PlatformWheelEvent::isEndOfMomentumScroll() const
     return m_phase == PlatformWheelEventPhaseNone && m_momentumPhase == PlatformWheelEventPhaseEnded;
 }
 
+#endif
+
+#if PLATFORM(COCOA) || PLATFORM(GTK)
+
 inline bool PlatformWheelEvent::isEndOfNonMomentumScroll() const
 {
     return m_phase == PlatformWheelEventPhaseEnded && m_momentumPhase == PlatformWheelEventPhaseNone;
@@ -206,7 +228,6 @@ inline bool PlatformWheelEvent::isTransitioningToMomentumScroll() const
 {
     return m_phase == PlatformWheelEventPhaseNone && m_momentumPhase == PlatformWheelEventPhaseBegan;
 }
-
 #endif
 
 } // namespace WebCore

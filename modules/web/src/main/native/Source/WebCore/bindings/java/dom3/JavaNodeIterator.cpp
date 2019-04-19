@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,14 +21,16 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
-*/
+ */
+
+#undef IMPL
 
 #include "config.h"
 
 #include <WebCore/Node.h>
 #include <WebCore/NodeFilter.h>
 #include <WebCore/NodeIterator.h>
-#include <WebCore/JSMainThreadExecState.h>
+#include <WebCore/JSExecState.h>
 
 #include <wtf/RefPtr.h>
 #include <wtf/GetPtr.h>
@@ -42,7 +44,7 @@ extern "C" {
 
 #define IMPL (static_cast<NodeIterator*>(jlong_to_ptr(peer)))
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_dispose(JNIEnv* env, jclass, jlong peer) {
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_dispose(JNIEnv*, jclass, jlong peer) {
     IMPL->deref();
 }
 
@@ -54,7 +56,7 @@ JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_getRootImpl(JNI
     return JavaReturn<Node>(env, WTF::getPtr(IMPL->root()));
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_getWhatToShowImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_getWhatToShowImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->whatToShow();
@@ -66,7 +68,7 @@ JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_getFilterImpl(J
     return JavaReturn<NodeFilter>(env, WTF::getPtr(IMPL->filter()));
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_getExpandEntityReferencesImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_getExpandEntityReferencesImpl(JNIEnv*, jclass, jlong)
 {
     return JNI_FALSE;
 }
@@ -77,29 +79,38 @@ JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_getReferenceNod
     return JavaReturn<Node>(env, WTF::getPtr(IMPL->referenceNode()));
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_getPointerBeforeReferenceNodeImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_getPointerBeforeReferenceNodeImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->pointerBeforeReferenceNode();
 }
 
-
 // Functions
 JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_nextNodeImpl(JNIEnv* env, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
-    return JavaReturn<Node>(env, WTF::getPtr(IMPL->nextNode()));
+
+    auto result = IMPL->nextNode();
+    if (result.hasException()) {
+        return {};
+    }
+    return JavaReturn<Node>(env, WTF::getPtr(result.releaseReturnValue()));
 }
 
 
 JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_previousNodeImpl(JNIEnv* env, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
-    return JavaReturn<Node>(env, WTF::getPtr(IMPL->previousNode()));
+
+    auto result = IMPL->previousNode();
+    if (result.hasException()) {
+        return {};
+    }
+    return JavaReturn<Node>(env, WTF::getPtr(result.releaseReturnValue()));
 }
 
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_detachImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_NodeIteratorImpl_detachImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->detach();

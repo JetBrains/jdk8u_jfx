@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,20 +33,22 @@
 #include "JSObjectInlines.h"
 #include "JSPromise.h"
 #include "JSPromiseConstructor.h"
+#include "PromiseDeferredTimer.h"
 
 namespace JSC {
 
-const ClassInfo JSPromiseDeferred::s_info = { "JSPromiseDeferred", 0, 0, CREATE_METHOD_TABLE(JSPromiseDeferred) };
+const ClassInfo JSPromiseDeferred::s_info = { "JSPromiseDeferred", nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(JSPromiseDeferred) };
 
 JSValue newPromiseCapability(ExecState* exec, JSGlobalObject* globalObject, JSPromiseConstructor* promiseConstructor)
 {
     JSFunction* newPromiseCapabilityFunction = globalObject->newPromiseCapabilityFunction();
     CallData callData;
-    CallType callType = JSC::getCallData(newPromiseCapabilityFunction, callData);
+    CallType callType = JSC::getCallData(exec->vm(), newPromiseCapabilityFunction, callData);
     ASSERT(callType != CallType::None);
 
     MarkedArgumentBuffer arguments;
     arguments.append(promiseConstructor);
+    ASSERT(!arguments.hasOverflowed());
     return call(exec, newPromiseCapabilityFunction, callType, callData, jsUndefined(), arguments);
 }
 
@@ -60,9 +62,12 @@ JSPromiseDeferred* JSPromiseDeferred::create(ExecState* exec, JSGlobalObject* gl
     RETURN_IF_EXCEPTION(scope, nullptr);
 
     JSValue promise = deferred.get(exec, vm.propertyNames->builtinNames().promisePrivateName());
-    ASSERT(promise.inherits(vm, JSPromise::info()));
+    RETURN_IF_EXCEPTION(scope, nullptr);
+    ASSERT(promise.inherits<JSPromise>(vm));
     JSValue resolve = deferred.get(exec, vm.propertyNames->builtinNames().resolvePrivateName());
+    RETURN_IF_EXCEPTION(scope, nullptr);
     JSValue reject = deferred.get(exec, vm.propertyNames->builtinNames().rejectPrivateName());
+    RETURN_IF_EXCEPTION(scope, nullptr);
 
     return JSPromiseDeferred::create(vm, jsCast<JSPromise*>(promise), resolve, reject);
 }
@@ -87,11 +92,12 @@ JSPromiseDeferred::JSPromiseDeferred(VM& vm, Structure* structure)
 static inline void callFunction(ExecState* exec, JSValue function, JSValue value)
 {
     CallData callData;
-    CallType callType = getCallData(function, callData);
+    CallType callType = getCallData(exec->vm(), function, callData);
     ASSERT(callType != CallType::None);
 
     MarkedArgumentBuffer arguments;
     arguments.append(value);
+    ASSERT(!arguments.hasOverflowed());
 
     call(exec, function, callType, callData, jsUndefined(), arguments);
 }
@@ -99,11 +105,20 @@ static inline void callFunction(ExecState* exec, JSValue function, JSValue value
 void JSPromiseDeferred::resolve(ExecState* exec, JSValue value)
 {
     callFunction(exec, m_resolve.get(), value);
+    bool wasPending = exec->vm().promiseDeferredTimer->cancelPendingPromise(this);
+    ASSERT_UNUSED(wasPending, wasPending == m_promiseIsAsyncPending);
 }
 
 void JSPromiseDeferred::reject(ExecState* exec, JSValue reason)
 {
     callFunction(exec, m_reject.get(), reason);
+    bool wasPending = exec->vm().promiseDeferredTimer->cancelPendingPromise(this);
+    ASSERT_UNUSED(wasPending, wasPending == m_promiseIsAsyncPending);
+}
+
+void JSPromiseDeferred::reject(ExecState* exec, Exception* reason)
+{
+    reject(exec, reason->value());
 }
 
 void JSPromiseDeferred::finishCreation(VM& vm, JSObject* promise, JSValue resolve, JSValue reject)

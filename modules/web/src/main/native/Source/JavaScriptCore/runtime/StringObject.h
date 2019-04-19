@@ -54,6 +54,7 @@ public:
     JS_EXPORT_PRIVATE static bool deleteProperty(JSCell*, ExecState*, PropertyName);
     JS_EXPORT_PRIVATE static bool deletePropertyByIndex(JSCell*, ExecState*, unsigned propertyName);
     JS_EXPORT_PRIVATE static void getOwnPropertyNames(JSObject*, ExecState*, PropertyNameArray&, EnumerationMode);
+    JS_EXPORT_PRIVATE static void getOwnNonIndexPropertyNames(JSObject*, ExecState*, PropertyNameArray&, EnumerationMode);
     JS_EXPORT_PRIVATE static bool defineOwnProperty(JSObject*, ExecState*, PropertyName, const PropertyDescriptor&, bool shouldThrow);
 
     DECLARE_EXPORT_INFO;
@@ -69,14 +70,6 @@ protected:
     JS_EXPORT_PRIVATE void finishCreation(VM&, JSString*);
     JS_EXPORT_PRIVATE StringObject(VM&, Structure*);
 };
-
-StringObject* asStringObject(JSValue);
-
-inline StringObject* asStringObject(JSValue value)
-{
-    ASSERT(asObject(value)->inherits(*value.getObject()->vm(), StringObject::info()));
-    return static_cast<StringObject*>(asObject(value));
-}
 
 JS_EXPORT_PRIVATE StringObject* constructString(VM&, JSGlobalObject*, JSValue);
 

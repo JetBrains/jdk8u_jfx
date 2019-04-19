@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,7 +21,9 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
-*/
+ */
+
+#undef IMPL
 
 #include "config.h"
 
@@ -30,7 +32,7 @@
 #include <WebCore/HTMLCollection.h>
 #include <WebCore/HTMLElement.h>
 #include <WebCore/HTMLNames.h>
-#include <WebCore/JSMainThreadExecState.h>
+#include <WebCore/JSExecState.h>
 
 #include <wtf/RefPtr.h>
 #include <wtf/GetPtr.h>
@@ -81,13 +83,13 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setLangImpl(JNIEn
     IMPL->setAttributeWithoutSynchronization(WebCore::HTMLNames::langAttr, String(env, value));
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_getTranslateImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_getTranslateImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->translate();
 }
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setTranslateImpl(JNIEnv* env, jclass, jlong peer, jboolean value)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setTranslateImpl(JNIEnv*, jclass, jlong peer, jboolean value)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->setTranslate(value);
@@ -105,25 +107,25 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setDirImpl(JNIEnv
     IMPL->setDir(String(env, value));
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_getTabIndexImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_getTabIndexImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->tabIndex();
 }
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setTabIndexImpl(JNIEnv* env, jclass, jlong peer, jint value)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setTabIndexImpl(JNIEnv*, jclass, jlong peer, jint value)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->setTabIndex(value);
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_getDraggableImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_getDraggableImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->draggable();
 }
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setDraggableImpl(JNIEnv* env, jclass, jlong peer, jboolean value)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setDraggableImpl(JNIEnv*, jclass, jlong peer, jboolean value)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->setDraggable(value);
@@ -141,13 +143,13 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setWebkitdropzone
     IMPL->setAttributeWithoutSynchronization(WebCore::HTMLNames::webkitdropzoneAttr, String(env, value));
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_getHiddenImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_getHiddenImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->hasAttribute(WebCore::HTMLNames::hiddenAttr);
 }
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setHiddenImpl(JNIEnv* env, jclass, jlong peer, jboolean value)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setHiddenImpl(JNIEnv*, jclass, jlong peer, jboolean value)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->setBooleanAttribute(WebCore::HTMLNames::hiddenAttr, value);
@@ -207,19 +209,19 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setContentEditabl
     IMPL->setContentEditable(String(env, value));
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_getIsContentEditableImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_getIsContentEditableImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->isContentEditable();
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_getSpellcheckImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_getSpellcheckImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->spellcheck();
 }
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setSpellcheckImpl(JNIEnv* env, jclass, jlong peer, jboolean value)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_setSpellcheckImpl(JNIEnv*, jclass, jlong peer, jboolean value)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->setSpellcheck(value);
@@ -266,7 +268,7 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_insertAdjacentTex
 }
 
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_clickImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLElementImpl_clickImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->click();

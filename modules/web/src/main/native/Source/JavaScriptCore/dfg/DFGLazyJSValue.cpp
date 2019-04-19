@@ -229,7 +229,7 @@ void LazyJSValue::emit(CCallHelpers& jit, JSValueRegs result) const
 
     jit.addLinkTask(
         [codeBlock, label, thisValue] (LinkBuffer& linkBuffer) {
-            JSValue realValue = thisValue.getValue(linkBuffer.vm());
+            JSValue realValue = thisValue.getValue(*codeBlock->vm());
             RELEASE_ASSERT(realValue.isCell());
 
             codeBlock->addConstant(realValue);
@@ -250,7 +250,7 @@ void LazyJSValue::dumpInContext(PrintStream& out, DumpContext* context) const
     case SingleCharacterString:
         out.print("Lazy:SingleCharacterString(");
         out.printf("%04X", static_cast<unsigned>(character()));
-        out.print(" / ", StringImpl::utf8ForCharacters(&u.character, 1), ")");
+        out.print(" / ", StringImpl::utf8ForCharacters(&u.character, 1).value(), ")");
         return;
     case KnownStringImpl:
         out.print("Lazy:KnownString(", stringImpl(), ")");

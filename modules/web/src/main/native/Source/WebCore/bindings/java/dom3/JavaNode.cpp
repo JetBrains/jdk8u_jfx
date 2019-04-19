@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,7 +21,9 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
-*/
+ */
+
+#undef IMPL
 
 #include "config.h"
 #include <wtf/RefPtr.h>
@@ -34,7 +36,7 @@
 #include <WebCore/NamedNodeMap.h>
 #include <WebCore/Node.h>
 #include <WebCore/NodeList.h>
-#include <WebCore/JSMainThreadExecState.h>
+#include <WebCore/JSExecState.h>
 #include <WebCore/SVGTests.h>
 #include <JavaScriptCore/APICast.h>
 
@@ -49,7 +51,7 @@ extern "C" {
 
 #define IMPL (static_cast<Node*>(jlong_to_ptr(peer)))
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_NodeImpl_dispose(JNIEnv* env, jclass, jlong peer) {
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_NodeImpl_dispose(JNIEnv*, jclass, jlong peer) {
     IMPL->deref();
 }
 
@@ -69,7 +71,7 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_NodeImpl_setNodeValueImpl(JNIEnv*
     IMPL->setNodeValue(String(env, value));
 }
 
-JNIEXPORT jshort JNICALL Java_com_sun_webkit_dom_NodeImpl_getNodeTypeImpl(JNIEnv* env, jclass, jlong peer) {
+JNIEXPORT jshort JNICALL Java_com_sun_webkit_dom_NodeImpl_getNodeTypeImpl(JNIEnv*, jclass, jlong peer) {
     WebCore::JSMainThreadNullState state;
     return IMPL->nodeType();
 }
@@ -218,7 +220,7 @@ JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_NodeImpl_appendChildImpl(JNIEnv*
 }
 
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_hasChildNodesImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_hasChildNodesImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->hasChildNodes();
@@ -233,14 +235,14 @@ JNIEXPORT jlong JNICALL Java_com_sun_webkit_dom_NodeImpl_cloneNodeImpl(JNIEnv* e
 }
 
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_NodeImpl_normalizeImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_NodeImpl_normalizeImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->normalize();
 }
 
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_isSupportedImpl(JNIEnv* env, jclass, jlong peer
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_isSupportedImpl(JNIEnv* env, jclass, jlong
     , jstring feature
     , jstring version)
 {
@@ -249,14 +251,14 @@ JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_isSupportedImpl(JNIE
 }
 
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_hasAttributesImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_hasAttributesImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->hasAttributes();
 }
 
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_isSameNodeImpl(JNIEnv* env, jclass, jlong peer
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_isSameNodeImpl(JNIEnv*, jclass, jlong peer
     , jlong other)
 {
     WebCore::JSMainThreadNullState state;
@@ -264,7 +266,7 @@ JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_isSameNodeImpl(JNIEn
 }
 
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_isEqualNodeImpl(JNIEnv* env, jclass, jlong peer
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_isEqualNodeImpl(JNIEnv*, jclass, jlong peer
     , jlong other)
 {
     WebCore::JSMainThreadNullState state;
@@ -296,7 +298,7 @@ JNIEXPORT jstring JNICALL Java_com_sun_webkit_dom_NodeImpl_lookupNamespaceURIImp
 }
 
 
-JNIEXPORT jshort JNICALL Java_com_sun_webkit_dom_NodeImpl_compareDocumentPositionImpl(JNIEnv* env, jclass, jlong peer
+JNIEXPORT jshort JNICALL Java_com_sun_webkit_dom_NodeImpl_compareDocumentPositionImpl(JNIEnv*, jclass, jlong peer
     , jlong other)
 {
     WebCore::JSMainThreadNullState state;
@@ -306,7 +308,7 @@ JNIEXPORT jshort JNICALL Java_com_sun_webkit_dom_NodeImpl_compareDocumentPositio
 }
 
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_containsImpl(JNIEnv* env, jclass, jlong peer
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_NodeImpl_containsImpl(JNIEnv*, jclass, jlong peer
     , jlong other)
 {
     WebCore::JSMainThreadNullState state;

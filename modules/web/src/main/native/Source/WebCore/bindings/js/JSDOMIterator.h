@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016 Canon, Inc. All rights reserved.
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,8 +27,7 @@
 #pragma once
 
 #include "JSDOMConvert.h"
-#include <runtime/IteratorPrototype.h>
-#include <runtime/JSDestructibleObject.h>
+#include <JavaScriptCore/IteratorPrototype.h>
 #include <type_traits>
 
 namespace WebCore {
@@ -99,9 +98,9 @@ public:
         return instance;
     }
 
-    static Prototype* createPrototype(JSC::VM& vm, JSC::JSGlobalObject* globalObject)
+    static Prototype* createPrototype(JSC::VM& vm, JSC::JSGlobalObject& globalObject)
     {
-        return Prototype::create(vm, globalObject, Prototype::createStructure(vm, globalObject, globalObject->iteratorPrototype()));
+        return Prototype::create(vm, &globalObject, Prototype::createStructure(vm, &globalObject, globalObject.iteratorPrototype()));
     }
 
     JSC::JSValue next(JSC::ExecState&);
@@ -128,6 +127,7 @@ inline JSC::JSValue jsPair(JSC::ExecState& state, JSDOMGlobalObject& globalObjec
     JSC::MarkedArgumentBuffer arguments;
     arguments.append(value1);
     arguments.append(value2);
+    ASSERT(!arguments.hasOverflowed());
     return constructArray(&state, nullptr, &globalObject, arguments);
 }
 
@@ -206,15 +206,19 @@ template<typename JSIterator> JSC::JSValue iteratorForEach(JSC::ExecState& state
     JSC::JSValue thisValue = state.argument(1);
 
     JSC::CallData callData;
-    JSC::CallType callType = JSC::getCallData(callback, callData);
+    JSC::CallType callType = JSC::getCallData(state.vm(), callback, callData);
     if (callType == JSC::CallType::None)
-        return throwTypeError(&state, scope, ASCIILiteral("Cannot call callback"));
+        return throwTypeError(&state, scope, "Cannot call callback"_s);
 
     auto iterator = thisObject.wrapped().createIterator();
     while (auto value = iterator.next()) {
         JSC::MarkedArgumentBuffer arguments;
         appendForEachArguments<JSIterator>(state, *thisObject.globalObject(), arguments, value);
         arguments.append(&thisObject);
+        if (UNLIKELY(arguments.hasOverflowed())) {
+            throwOutOfMemoryError(&state, scope);
+            return { };
+        }
         JSC::call(&state, callback, callType, callData, thisValue, arguments);
         if (UNLIKELY(scope.exception()))
             break;
@@ -247,9 +251,9 @@ JSC::EncodedJSValue JSC_HOST_CALL JSDOMIteratorPrototype<JSWrapper, IteratorTrai
     JSC::VM& vm = state->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    auto iterator = jsDynamicDowncast<JSDOMIterator<JSWrapper, IteratorTraits>*>(vm, state->thisValue());
+    auto iterator = JSC::jsDynamicCast<JSDOMIterator<JSWrapper, IteratorTraits>*>(vm, state->thisValue());
     if (!iterator)
-        return JSC::JSValue::encode(throwTypeError(state, scope, ASCIILiteral("Cannot call next() on a non-Iterator object")));
+        return JSC::JSValue::encode(throwTypeError(state, scope, "Cannot call next() on a non-Iterator object"_s));
 
     return JSC::JSValue::encode(iterator->next(*state));
 }

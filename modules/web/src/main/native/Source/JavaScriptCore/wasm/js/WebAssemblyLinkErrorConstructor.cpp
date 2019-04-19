@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,28 +37,28 @@
 
 namespace JSC {
 
-const ClassInfo WebAssemblyLinkErrorConstructor::s_info = { "Function", &Base::s_info, &constructorTableWebAssemblyLinkError, CREATE_METHOD_TABLE(WebAssemblyLinkErrorConstructor) };
+const ClassInfo WebAssemblyLinkErrorConstructor::s_info = { "Function", &Base::s_info, &constructorTableWebAssemblyLinkError, nullptr, CREATE_METHOD_TABLE(WebAssemblyLinkErrorConstructor) };
 
 /* Source for WebAssemblyLinkErrorConstructor.lut.h
  @begin constructorTableWebAssemblyLinkError
  @end
  */
 
-static EncodedJSValue JSC_HOST_CALL constructJSWebAssemblyLinkError(ExecState* state)
+static EncodedJSValue JSC_HOST_CALL constructJSWebAssemblyLinkError(ExecState* exec)
 {
-    auto& vm = state->vm();
+    auto& vm = exec->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    JSValue message = state->argument(0);
-    auto* structure = InternalFunction::createSubclassStructure(state, state->newTarget(), asInternalFunction(state->jsCallee())->globalObject()->WebAssemblyLinkErrorStructure());
+    JSValue message = exec->argument(0);
+    auto* structure = InternalFunction::createSubclassStructure(exec, exec->newTarget(), jsCast<InternalFunction*>(exec->jsCallee())->globalObject(vm)->WebAssemblyLinkErrorStructure());
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
-    return JSValue::encode(JSWebAssemblyLinkError::create(state, vm, structure, message));
+    return JSValue::encode(JSWebAssemblyLinkError::create(exec, vm, structure, message));
 }
 
-static EncodedJSValue JSC_HOST_CALL callJSWebAssemblyLinkError(ExecState* state)
+static EncodedJSValue JSC_HOST_CALL callJSWebAssemblyLinkError(ExecState* exec)
 {
-    VM& vm = state->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-    return JSValue::encode(throwConstructorCannotBeCalledAsFunctionTypeError(state, scope, "WebAssembly.LinkError"));
+    JSValue message = exec->argument(0);
+    Structure* errorStructure = jsCast<InternalFunction*>(exec->jsCallee())->globalObject(exec->vm())->WebAssemblyLinkErrorStructure();
+    return JSValue::encode(ErrorInstance::create(exec, errorStructure, message, nullptr, TypeNothing, false));
 }
 
 WebAssemblyLinkErrorConstructor* WebAssemblyLinkErrorConstructor::create(VM& vm, Structure* structure, WebAssemblyLinkErrorPrototype* thisPrototype)
@@ -70,31 +70,19 @@ WebAssemblyLinkErrorConstructor* WebAssemblyLinkErrorConstructor::create(VM& vm,
 
 Structure* WebAssemblyLinkErrorConstructor::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
 {
-    return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
+    return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
 }
 
 void WebAssemblyLinkErrorConstructor::finishCreation(VM& vm, WebAssemblyLinkErrorPrototype* prototype)
 {
-    Base::finishCreation(vm, ASCIILiteral("LinkError"));
-    putDirectWithoutTransition(vm, vm.propertyNames->prototype, prototype, ReadOnly | DontEnum | DontDelete);
-    putDirectWithoutTransition(vm, vm.propertyNames->length, jsNumber(1), ReadOnly | DontEnum | DontDelete);
+    Base::finishCreation(vm, "LinkError"_s);
+    putDirectWithoutTransition(vm, vm.propertyNames->prototype, prototype, PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum | PropertyAttribute::DontDelete);
+    putDirectWithoutTransition(vm, vm.propertyNames->length, jsNumber(1), PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum | PropertyAttribute::DontDelete);
 }
 
 WebAssemblyLinkErrorConstructor::WebAssemblyLinkErrorConstructor(VM& vm, Structure* structure)
-    : Base(vm, structure)
+    : Base(vm, structure, callJSWebAssemblyLinkError, constructJSWebAssemblyLinkError)
 {
-}
-
-ConstructType WebAssemblyLinkErrorConstructor::getConstructData(JSCell*, ConstructData& constructData)
-{
-    constructData.native.function = constructJSWebAssemblyLinkError;
-    return ConstructType::Host;
-}
-
-CallType WebAssemblyLinkErrorConstructor::getCallData(JSCell*, CallData& callData)
-{
-    callData.native.function = callJSWebAssemblyLinkError;
-    return CallType::Host;
 }
 
 } // namespace JSC

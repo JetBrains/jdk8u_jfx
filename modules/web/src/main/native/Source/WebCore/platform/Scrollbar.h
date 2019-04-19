@@ -23,13 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef Scrollbar_h
-#define Scrollbar_h
+#pragma once
 
 #include "ScrollTypes.h"
 #include "Timer.h"
 #include "Widget.h"
-#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -134,8 +132,6 @@ public:
 
     bool supportsUpdateOnSecondaryThread() const;
 
-    WeakPtr<Scrollbar> createWeakPtr() { return m_weakPtrFactory.createWeakPtr(); }
-
 protected:
     Scrollbar(ScrollableArea&, ScrollbarOrientation, ScrollbarControlSize, ScrollbarTheme* = 0, bool isCustomScrollbar = false);
 
@@ -144,9 +140,9 @@ protected:
     virtual void updateThumbProportion();
 
     void autoscrollTimerFired();
-    void startTimerIfNeeded(double delay);
+    void startTimerIfNeeded(Seconds delay);
     void stopTimerIfNeeded();
-    void autoscrollPressedPart(double delay);
+    void autoscrollPressedPart(Seconds delay);
     ScrollDirection pressedPartScrollDirection();
     ScrollGranularity pressedPartScrollGranularity();
 
@@ -184,12 +180,9 @@ protected:
 
 private:
     bool isScrollbar() const override { return true; }
-
-    WeakPtrFactory<Scrollbar> m_weakPtrFactory;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_WIDGET(Scrollbar, isScrollbar())
 
-#endif // Scrollbar_h

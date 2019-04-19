@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,7 +33,7 @@
 
 namespace JSC {
 
-const ClassInfo JSModuleNamespaceObject::s_info = { "ModuleNamespaceObject", &Base::s_info, nullptr, CREATE_METHOD_TABLE(JSModuleNamespaceObject) };
+const ClassInfo JSModuleNamespaceObject::s_info = { "ModuleNamespaceObject", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSModuleNamespaceObject) };
 
 JSModuleNamespaceObject::JSModuleNamespaceObject(VM& vm, Structure* structure)
     : Base(vm, structure)
@@ -73,14 +73,14 @@ void JSModuleNamespaceObject::finishCreation(ExecState* exec, JSGlobalObject*, A
         }
     }
 
-    putDirect(vm, vm.propertyNames->toStringTagSymbol, jsString(&vm, "Module"), DontEnum | DontDelete | ReadOnly);
+    putDirect(vm, vm.propertyNames->toStringTagSymbol, jsString(&vm, "Module"), PropertyAttribute::DontEnum | PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly);
 
     // http://www.ecma-international.org/ecma-262/6.0/#sec-module-namespace-exotic-objects-getprototypeof
     // http://www.ecma-international.org/ecma-262/6.0/#sec-module-namespace-exotic-objects-setprototypeof-v
     // http://www.ecma-international.org/ecma-262/6.0/#sec-module-namespace-exotic-objects-isextensible
     // http://www.ecma-international.org/ecma-262/6.0/#sec-module-namespace-exotic-objects-preventextensions
     methodTable(vm)->preventExtensions(this, exec);
-    ASSERT_UNUSED(scope, !scope.exception());
+    scope.assertNoException();
 }
 
 void JSModuleNamespaceObject::destroy(JSCell* cell)
@@ -113,32 +113,30 @@ static JSValue getValue(JSModuleEnvironment* environment, PropertyName localName
     return environment->variableAt(scopeOffset).get();
 }
 
-bool JSModuleNamespaceObject::getOwnPropertySlot(JSObject* cell, ExecState* exec, PropertyName propertyName, PropertySlot& slot)
+bool JSModuleNamespaceObject::getOwnPropertySlotCommon(ExecState* exec, PropertyName propertyName, PropertySlot& slot)
 {
     VM& vm = exec->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     // http://www.ecma-international.org/ecma-262/6.0/#sec-module-namespace-exotic-objects-getownproperty-p
 
-    JSModuleNamespaceObject* thisObject = jsCast<JSModuleNamespaceObject*>(cell);
-
     // step 1.
     // If the property name is a symbol, we don't look into the imported bindings.
     // It may return the descriptor with writable: true, but namespace objects does not allow it in [[Set]] / [[DefineOwnProperty]] side.
     if (propertyName.isSymbol())
-        return JSObject::getOwnPropertySlot(thisObject, exec, propertyName, slot);
+        return JSObject::getOwnPropertySlot(this, exec, propertyName, slot);
 
     slot.setIsTaintedByOpaqueObject();
 
-    auto iterator = thisObject->m_exports.find(propertyName.uid());
-    if (iterator == thisObject->m_exports.end())
+    auto iterator = m_exports.find(propertyName.uid());
+    if (iterator == m_exports.end())
         return false;
     ExportEntry& exportEntry = iterator->value;
 
     switch (slot.internalMethodType()) {
     case PropertySlot::InternalMethodType::GetOwnProperty:
     case PropertySlot::InternalMethodType::Get: {
-        JSModuleEnvironment* environment = thisObject->moduleRecordAt(exportEntry.moduleRecordOffset)->moduleEnvironment();
+        JSModuleEnvironment* environment = moduleRecordAt(exportEntry.moduleRecordOffset)->moduleEnvironment();
         ScopeOffset scopeOffset;
         JSValue value = getValue(environment, exportEntry.localName, scopeOffset);
         // If the value is filled with TDZ value, throw a reference error.
@@ -147,7 +145,7 @@ bool JSModuleNamespaceObject::getOwnPropertySlot(JSObject* cell, ExecState* exec
             return false;
         }
 
-        slot.setValueModuleNamespace(thisObject, DontDelete, value, environment, scopeOffset);
+        slot.setValueModuleNamespace(this, static_cast<unsigned>(PropertyAttribute::DontDelete), value, environment, scopeOffset);
         return true;
     }
 
@@ -155,7 +153,7 @@ bool JSModuleNamespaceObject::getOwnPropertySlot(JSObject* cell, ExecState* exec
         // Do not perform [[Get]] for [[HasProperty]].
         // [[Get]] / [[GetOwnProperty]] onto namespace object could throw an error while [[HasProperty]] just returns true here.
         // https://tc39.github.io/ecma262/#sec-module-namespace-exotic-objects-hasproperty-p
-        slot.setValue(thisObject, DontDelete, jsUndefined());
+        slot.setValue(this, static_cast<unsigned>(PropertyAttribute::DontDelete), jsUndefined());
         return true;
     }
 
@@ -167,6 +165,18 @@ bool JSModuleNamespaceObject::getOwnPropertySlot(JSObject* cell, ExecState* exec
     return false;
 }
 
+bool JSModuleNamespaceObject::getOwnPropertySlot(JSObject* cell, ExecState* exec, PropertyName propertyName, PropertySlot& slot)
+{
+    JSModuleNamespaceObject* thisObject = jsCast<JSModuleNamespaceObject*>(cell);
+    return thisObject->getOwnPropertySlotCommon(exec, propertyName, slot);
+}
+
+bool JSModuleNamespaceObject::getOwnPropertySlotByIndex(JSObject* cell, ExecState* exec, unsigned propertyName, PropertySlot& slot)
+{
+    JSModuleNamespaceObject* thisObject = jsCast<JSModuleNamespaceObject*>(cell);
+    return thisObject->getOwnPropertySlotCommon(exec, Identifier::from(exec, propertyName), slot);
+}
+
 bool JSModuleNamespaceObject::put(JSCell*, ExecState* exec, PropertyName, JSValue, PutPropertySlot& slot)
 {
     VM& vm = exec->vm();
@@ -174,7 +184,7 @@ bool JSModuleNamespaceObject::put(JSCell*, ExecState* exec, PropertyName, JSValu
 
     // http://www.ecma-international.org/ecma-262/6.0/#sec-module-namespace-exotic-objects-set-p-v-receiver
     if (slot.isStrictMode())
-        throwTypeError(exec, scope, ASCIILiteral(ReadonlyPropertyWriteError));
+        throwTypeError(exec, scope, ReadonlyPropertyWriteError);
     return false;
 }
 
@@ -184,7 +194,7 @@ bool JSModuleNamespaceObject::putByIndex(JSCell*, ExecState* exec, unsigned, JSV
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     if (shouldThrow)
-        throwTypeError(exec, scope, ASCIILiteral(ReadonlyPropertyWriteError));
+        throwTypeError(exec, scope, ReadonlyPropertyWriteError);
     return false;
 }
 
@@ -214,7 +224,7 @@ bool JSModuleNamespaceObject::defineOwnProperty(JSObject*, ExecState* exec, Prop
 
     // http://www.ecma-international.org/ecma-262/6.0/#sec-module-namespace-exotic-objects-defineownproperty-p-desc
     if (shouldThrow)
-        throwTypeError(exec, scope, ASCIILiteral(NonExtensibleObjectPropertyDefineError));
+        throwTypeError(exec, scope, NonExtensibleObjectPropertyDefineError);
     return false;
 }
 

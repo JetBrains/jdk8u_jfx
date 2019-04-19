@@ -32,7 +32,6 @@
 #include "CSSDefaultStyleSheets.h"
 #include "CSSImportRule.h"
 #include "CSSMediaRule.h"
-#include "CSSNamespaceRule.h"
 #include "CSSRule.h"
 #include "CSSStyleRule.h"
 #include "CSSStyleSheet.h"
@@ -40,7 +39,6 @@
 #include "ExtensionStyleSheets.h"
 #include "StyleScope.h"
 #include "StyleSheetContents.h"
-#include "WebKitCSSRegionRule.h"
 
 namespace WebCore {
 
@@ -68,11 +66,6 @@ void InspectorCSSOMWrappers::collect(ListType* listType)
         case CSSRule::SUPPORTS_RULE:
             collect(downcast<CSSSupportsRule>(cssRule));
             break;
-#if ENABLE(CSS_REGIONS)
-        case CSSRule::WEBKIT_REGION_RULE:
-            collect(downcast<WebKitCSSRegionRule>(cssRule));
-            break;
-#endif
         case CSSRule::STYLE_RULE:
             m_styleRuleToCSSOMWrapperMap.add(&downcast<CSSStyleRule>(*cssRule).styleRule(), downcast<CSSStyleRule>(cssRule));
             break;
@@ -118,6 +111,7 @@ void InspectorCSSOMWrappers::collectDocumentWrappers(ExtensionStyleSheets& exten
         collectFromStyleSheetContents(CSSDefaultStyleSheets::mediaControlsStyleSheet);
         collectFromStyleSheetContents(CSSDefaultStyleSheets::fullscreenStyleSheet);
         collectFromStyleSheetContents(CSSDefaultStyleSheets::plugInsStyleSheet);
+        collectFromStyleSheetContents(CSSDefaultStyleSheets::mediaQueryStyleSheet);
 
         collect(extensionStyleSheets.pageUserSheet());
         collectFromStyleSheets(extensionStyleSheets.injectedUserStyleSheets());

@@ -41,6 +41,8 @@
 #include "CSSFilterImageValue.h"
 #include "CSSFontFaceSrcValue.h"
 #include "CSSFontFeatureValue.h"
+#include "CSSFontStyleRangeValue.h"
+#include "CSSFontStyleValue.h"
 #include "CSSFontValue.h"
 #include "CSSFontVariationValue.h"
 #include "CSSFunctionValue.h"
@@ -99,7 +101,7 @@ CSSValue::Type CSSValue::cssValueType() const
     return CSS_CUSTOM;
 }
 
-bool CSSValue::traverseSubresources(const std::function<bool (const CachedResource&)>& handler) const
+bool CSSValue::traverseSubresources(const WTF::Function<bool (const CachedResource&)>& handler) const
 {
     if (is<CSSValueList>(*this))
         return downcast<CSSValueList>(*this).traverseSubresources(handler);
@@ -154,6 +156,8 @@ bool CSSValue::equals(const CSSValue& other) const
             return compareCSSValues<CSSLinearGradientValue>(*this, other);
         case RadialGradientClass:
             return compareCSSValues<CSSRadialGradientValue>(*this, other);
+        case ConicGradientClass:
+            return compareCSSValues<CSSConicGradientValue>(*this, other);
         case CrossfadeClass:
             return compareCSSValues<CSSCrossfadeValue>(*this, other);
         case ImageClass:
@@ -182,6 +186,8 @@ bool CSSValue::equals(const CSSValue& other) const
             return compareCSSValues<CSSCubicBezierTimingFunctionValue>(*this, other);
         case StepsTimingFunctionClass:
             return compareCSSValues<CSSStepsTimingFunctionValue>(*this, other);
+        case FramesTimingFunctionClass:
+            return compareCSSValues<CSSFramesTimingFunctionValue>(*this, other);
         case SpringTimingFunctionClass:
             return compareCSSValues<CSSSpringTimingFunctionValue>(*this, other);
         case UnicodeRangeClass:
@@ -206,6 +212,10 @@ bool CSSValue::equals(const CSSValue& other) const
             return compareCSSValues<CSSVariableReferenceValue>(*this, other);
         case PendingSubstitutionValueClass:
             return compareCSSValues<CSSPendingSubstitutionValue>(*this, other);
+        case FontStyleClass:
+            return compareCSSValues<CSSFontStyleValue>(*this, other);
+        case FontStyleRangeClass:
+            return compareCSSValues<CSSFontStyleRangeValue>(*this, other);
         default:
             ASSERT_NOT_REACHED();
             return false;
@@ -248,6 +258,8 @@ String CSSValue::cssText() const
         return downcast<CSSLinearGradientValue>(*this).customCSSText();
     case RadialGradientClass:
         return downcast<CSSRadialGradientValue>(*this).customCSSText();
+    case ConicGradientClass:
+        return downcast<CSSConicGradientValue>(*this).customCSSText();
     case CrossfadeClass:
         return downcast<CSSCrossfadeValue>(*this).customCSSText();
     case ImageClass:
@@ -276,6 +288,8 @@ String CSSValue::cssText() const
         return downcast<CSSCubicBezierTimingFunctionValue>(*this).customCSSText();
     case StepsTimingFunctionClass:
         return downcast<CSSStepsTimingFunctionValue>(*this).customCSSText();
+    case FramesTimingFunctionClass:
+        return downcast<CSSFramesTimingFunctionValue>(*this).customCSSText();
     case SpringTimingFunctionClass:
         return downcast<CSSSpringTimingFunctionValue>(*this).customCSSText();
     case UnicodeRangeClass:
@@ -302,6 +316,10 @@ String CSSValue::cssText() const
         return downcast<CSSVariableReferenceValue>(*this).customCSSText();
     case PendingSubstitutionValueClass:
         return downcast<CSSPendingSubstitutionValue>(*this).customCSSText();
+    case FontStyleClass:
+        return downcast<CSSFontStyleValue>(*this).customCSSText();
+    case FontStyleRangeClass:
+        return downcast<CSSFontStyleRangeValue>(*this).customCSSText();
     }
 
     ASSERT_NOT_REACHED();
@@ -349,6 +367,9 @@ void CSSValue::destroy()
     case RadialGradientClass:
         delete downcast<CSSRadialGradientValue>(this);
         return;
+    case ConicGradientClass:
+        delete downcast<CSSConicGradientValue>(this);
+        return;
     case CrossfadeClass:
         delete downcast<CSSCrossfadeValue>(this);
         return;
@@ -391,6 +412,9 @@ void CSSValue::destroy()
     case StepsTimingFunctionClass:
         delete downcast<CSSStepsTimingFunctionValue>(this);
         return;
+    case FramesTimingFunctionClass:
+        delete downcast<CSSFramesTimingFunctionValue>(this);
+        return;
     case SpringTimingFunctionClass:
         delete downcast<CSSSpringTimingFunctionValue>(this);
         return;
@@ -432,19 +456,25 @@ void CSSValue::destroy()
     case PendingSubstitutionValueClass:
         delete downcast<CSSPendingSubstitutionValue>(this);
         return;
+    case FontStyleClass:
+        delete downcast<CSSFontStyleValue>(this);
+        return;
+    case FontStyleRangeClass:
+        delete downcast<CSSFontStyleRangeValue>(this);
+        return;
     }
     ASSERT_NOT_REACHED();
 }
 
-Ref<DeprecatedCSSOMValue> CSSValue::createDeprecatedCSSOMWrapper() const
+Ref<DeprecatedCSSOMValue> CSSValue::createDeprecatedCSSOMWrapper(CSSStyleDeclaration& styleDeclaration) const
 {
     if (isImageValue() || isCursorImageValue())
-        return downcast<CSSImageValue>(this)->createDeprecatedCSSOMWrapper();
+        return downcast<CSSImageValue>(this)->createDeprecatedCSSOMWrapper(styleDeclaration);
     if (isPrimitiveValue())
-        return DeprecatedCSSOMPrimitiveValue::create(downcast<CSSPrimitiveValue>(*this));
+        return DeprecatedCSSOMPrimitiveValue::create(downcast<CSSPrimitiveValue>(*this), styleDeclaration);
     if (isValueList())
-        return DeprecatedCSSOMValueList::create(downcast<CSSValueList>(*this));
-    return DeprecatedCSSOMComplexValue::create(*this);
+        return DeprecatedCSSOMValueList::create(downcast<CSSValueList>(*this), styleDeclaration);
+    return DeprecatedCSSOMComplexValue::create(*this, styleDeclaration);
 }
 
 bool CSSValue::treatAsInheritedValue(CSSPropertyID propertyID) const

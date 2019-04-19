@@ -39,7 +39,6 @@
 #include "HTMLNames.h"
 #include "TextResourceDecoder.h"
 #include "VTTRegion.h"
-#include "WebVTTTokenizer.h"
 #include <memory>
 #include <wtf/MediaTime.h>
 #include <wtf/text/StringBuilder.h>
@@ -54,7 +53,7 @@ class VTTScanner;
 
 class WebVTTParserClient {
 public:
-    virtual ~WebVTTParserClient() { }
+    virtual ~WebVTTParserClient() = default;
 
     virtual void newCuesParsed() = 0;
     virtual void newRegionsParsed() = 0;
@@ -65,7 +64,7 @@ class WebVTTCueData final : public RefCounted<WebVTTCueData> {
 public:
 
     static Ref<WebVTTCueData> create() { return adoptRef(*new WebVTTCueData()); }
-    ~WebVTTCueData() { }
+    ~WebVTTCueData() = default;
 
     MediaTime startTime() const { return m_startTime; }
     void setStartTime(const MediaTime& startTime) { m_startTime = startTime; }
@@ -86,7 +85,7 @@ public:
     void setOriginalStartTime(const MediaTime& time) { m_originalStartTime = time; }
 
 private:
-    WebVTTCueData() { }
+    WebVTTCueData() = default;
 
     MediaTime m_startTime;
     MediaTime m_endTime;

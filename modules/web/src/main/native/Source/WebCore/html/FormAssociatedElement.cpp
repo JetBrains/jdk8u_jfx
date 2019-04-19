@@ -26,6 +26,7 @@
 #include "FormAssociatedElement.h"
 
 #include "EditorClient.h"
+#include "ElementAncestorIterator.h"
 #include "FormController.h"
 #include "Frame.h"
 #include "HTMLFormControlElement.h"
@@ -67,43 +68,34 @@ void FormAssociatedElement::didMoveToNewDocument(Document&)
         resetFormAttributeTargetObserver();
 }
 
-void FormAssociatedElement::insertedInto(ContainerNode& insertionPoint)
+void FormAssociatedElement::insertedIntoAncestor(Node::InsertionType insertionType, ContainerNode&)
 {
     HTMLElement& element = asHTMLElement();
     if (m_formSetByParser) {
-        setForm(m_formSetByParser);
+        // The form could have been removed by a script during parsing.
+        if (m_formSetByParser->isConnected())
+            setForm(m_formSetByParser);
         m_formSetByParser = nullptr;
     }
 
     if (m_form && element.rootElement() != m_form->rootElement())
         setForm(nullptr);
 
-    if (!insertionPoint.isConnected())
+    if (!insertionType.connectedToDocument)
         return;
 
     if (element.hasAttributeWithoutSynchronization(formAttr))
         resetFormAttributeTargetObserver();
 }
 
-// Compute the highest ancestor instead of calling Node::rootNode in removedFrom / formRemovedFromTree
-// since isConnected flag on some form associated elements may not have been updated yet.
-static Node* computeRootNode(Node& node)
+void FormAssociatedElement::removedFromAncestor(Node::RemovalType, ContainerNode&)
 {
-    Node* current = &node;
-    Node* parent = current;
-    while ((current = current->parentNode()))
-        parent = current;
-    return parent;
-}
+    m_formAttributeTargetObserver = nullptr;
 
-void FormAssociatedElement::removedFrom(ContainerNode& insertionPoint)
-{
-    HTMLElement& element = asHTMLElement();
-    if (insertionPoint.isConnected() && element.hasAttributeWithoutSynchronization(formAttr))
-        m_formAttributeTargetObserver = nullptr;
     // If the form and element are both in the same tree, preserve the connection to the form.
     // Otherwise, null out our form and remove ourselves from the form's list of elements.
-    if (m_form && computeRootNode(element) != computeRootNode(*m_form))
+    // Do not rely on rootNode() because our IsInTreeScope is outdated.
+    if (m_form && &asHTMLElement().traverseToRootNode() != &m_form->traverseToRootNode())
         setForm(nullptr);
 }
 
@@ -115,11 +107,10 @@ HTMLFormElement* FormAssociatedElement::findAssociatedForm(const HTMLElement* el
         // the first element in the document to have an ID that equal to
         // the value of form attribute, so we put the result of
         // treeScope().getElementById() over the given element.
-        HTMLFormElement* newForm = nullptr;
-        Element* newFormCandidate = element->treeScope().getElementById(formId);
+        RefPtr<Element> newFormCandidate = element->treeScope().getElementById(formId);
         if (is<HTMLFormElement>(newFormCandidate))
-            newForm = downcast<HTMLFormElement>(newFormCandidate);
-        return newForm;
+            return downcast<HTMLFormElement>(newFormCandidate.get());
+        return nullptr;
     }
 
     if (!currentAssociatedForm)
@@ -128,10 +119,23 @@ HTMLFormElement* FormAssociatedElement::findAssociatedForm(const HTMLElement* el
     return currentAssociatedForm;
 }
 
-void FormAssociatedElement::formRemovedFromTree(const Node* formRoot)
+void FormAssociatedElement::formOwnerRemovedFromTree(const Node& formRoot)
 {
     ASSERT(m_form);
-    if (computeRootNode(asHTMLElement()) != formRoot)
+    // Can't use RefPtr here beacuse this function might be called inside ~ShadowRoot via addChildNodesToDeletionQueue. See webkit.org/b/189493.
+    Node* rootNode = &asHTMLElement();
+    for (auto* ancestor = asHTMLElement().parentNode(); ancestor; ancestor = ancestor->parentNode()) {
+        if (ancestor == m_form) {
+            // Form is our ancestor so we don't need to reset our owner, we also no longer
+            // need an id observer since we are no longer connected.
+            m_formAttributeTargetObserver = nullptr;
+            return;
+        }
+        rootNode = ancestor;
+    }
+
+    // We are no longer in the same tree as our form owner so clear our owner.
+    if (rootNode != &formRoot)
         setForm(nullptr);
 }
 
@@ -168,7 +172,7 @@ void FormAssociatedElement::formWillBeDestroyed()
 
 void FormAssociatedElement::resetFormOwner()
 {
-    HTMLFormElement* originalForm = m_form;
+    RefPtr<HTMLFormElement> originalForm = m_form;
     setForm(findAssociatedForm(&asHTMLElement(), m_form));
     HTMLElement& element = asHTMLElement();
     if (m_form && m_form != originalForm && m_form->isConnected())
@@ -180,7 +184,7 @@ void FormAssociatedElement::formAttributeChanged()
     HTMLElement& element = asHTMLElement();
     if (!element.hasAttributeWithoutSynchronization(formAttr)) {
         // The form attribute removed. We need to reset form owner here.
-        HTMLFormElement* originalForm = m_form;
+        RefPtr<HTMLFormElement> originalForm = m_form;
         setForm(HTMLFormElement::findClosestFormAncestor(element));
         if (m_form && m_form != originalForm && m_form->isConnected())
             element.document().didAssociateFormControl(&element);
@@ -278,7 +282,7 @@ void FormAssociatedElement::formAttributeTargetChanged()
 const AtomicString& FormAssociatedElement::name() const
 {
     const AtomicString& name = asHTMLElement().getNameAttribute();
-    return name.isNull() ? emptyAtom : name;
+    return name.isNull() ? emptyAtom() : name;
 }
 
 bool FormAssociatedElement::isFormControlElementWithState() const

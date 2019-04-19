@@ -40,44 +40,66 @@
 #include "RTCSessionDescription.h"
 #include "RealtimeIncomingAudioSource.h"
 #include "RealtimeIncomingVideoSource.h"
+#include "RealtimeOutgoingAudioSource.h"
+#include "RealtimeOutgoingVideoSource.h"
 
 namespace WebCore {
 
 static std::unique_ptr<PeerConnectionBackend> createLibWebRTCPeerConnectionBackend(RTCPeerConnection& peerConnection)
 {
-    return std::make_unique<LibWebRTCPeerConnectionBackend>(peerConnection);
+    if (!LibWebRTCProvider::webRTCAvailable())
+        return nullptr;
+
+    auto* page = downcast<Document>(*peerConnection.scriptExecutionContext()).page();
+    if (!page)
+        return nullptr;
+    return std::make_unique<LibWebRTCPeerConnectionBackend>(peerConnection, page->libWebRTCProvider());
 }
 
 CreatePeerConnectionBackend PeerConnectionBackend::create = createLibWebRTCPeerConnectionBackend;
 
-static inline LibWebRTCProvider& libWebRTCProvider(RTCPeerConnection& peerConnection)
-{
-    ASSERT(peerConnection.scriptExecutionContext()->isDocument());
-    auto* page = static_cast<Document*>(peerConnection.scriptExecutionContext())->page();
-    return page->libWebRTCProvider();
-}
-
-LibWebRTCPeerConnectionBackend::LibWebRTCPeerConnectionBackend(RTCPeerConnection& peerConnection)
+LibWebRTCPeerConnectionBackend::LibWebRTCPeerConnectionBackend(RTCPeerConnection& peerConnection, LibWebRTCProvider& provider)
     : PeerConnectionBackend(peerConnection)
-    , m_endpoint(LibWebRTCMediaEndpoint::create(*this, libWebRTCProvider(peerConnection)))
+    , m_endpoint(LibWebRTCMediaEndpoint::create(*this, provider))
 {
 }
 
-LibWebRTCPeerConnectionBackend::~LibWebRTCPeerConnectionBackend()
+LibWebRTCPeerConnectionBackend::~LibWebRTCPeerConnectionBackend() = default;
+
+static inline webrtc::PeerConnectionInterface::BundlePolicy bundlePolicyfromConfiguration(const MediaEndpointConfiguration& configuration)
 {
+    switch (configuration.bundlePolicy) {
+    case RTCBundlePolicy::MaxCompat:
+        return webrtc::PeerConnectionInterface::kBundlePolicyMaxCompat;
+    case RTCBundlePolicy::MaxBundle:
+        return webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
+    case RTCBundlePolicy::Balanced:
+        return webrtc::PeerConnectionInterface::kBundlePolicyBalanced;
+    }
+
+    ASSERT_NOT_REACHED();
+    return webrtc::PeerConnectionInterface::kBundlePolicyMaxCompat;
+}
+
+static inline webrtc::PeerConnectionInterface::IceTransportsType iceTransportPolicyfromConfiguration(const MediaEndpointConfiguration& configuration)
+{
+    switch (configuration.iceTransportPolicy) {
+    case RTCIceTransportPolicy::Relay:
+        return webrtc::PeerConnectionInterface::kRelay;
+    case RTCIceTransportPolicy::All:
+        return webrtc::PeerConnectionInterface::kAll;
+    }
+
+    ASSERT_NOT_REACHED();
+    return webrtc::PeerConnectionInterface::kNone;
 }
 
 static webrtc::PeerConnectionInterface::RTCConfiguration configurationFromMediaEndpointConfiguration(MediaEndpointConfiguration&& configuration)
 {
-    webrtc::PeerConnectionInterface::RTCConfiguration rtcConfiguration(webrtc::PeerConnectionInterface::RTCConfigurationType::kAggressive);
+    webrtc::PeerConnectionInterface::RTCConfiguration rtcConfiguration;
 
-    if (configuration.iceTransportPolicy == PeerConnectionStates::IceTransportPolicy::Relay)
-        rtcConfiguration.type = webrtc::PeerConnectionInterface::kRelay;
-
-    if (configuration.bundlePolicy == PeerConnectionStates::BundlePolicy::MaxBundle)
-        rtcConfiguration.bundle_policy = webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
-    else if (configuration.bundlePolicy == PeerConnectionStates::BundlePolicy::MaxCompat)
-        rtcConfiguration.bundle_policy = webrtc::PeerConnectionInterface::kBundlePolicyMaxCompat;
+    rtcConfiguration.type = iceTransportPolicyfromConfiguration(configuration);
+    rtcConfiguration.bundle_policy = bundlePolicyfromConfiguration(configuration);
 
     for (auto& server : configuration.iceServers) {
         webrtc::PeerConnectionInterface::IceServer iceServer;
@@ -88,12 +110,20 @@ static webrtc::PeerConnectionInterface::RTCConfiguration configurationFromMediaE
         rtcConfiguration.servers.push_back(WTFMove(iceServer));
     }
 
+    rtcConfiguration.set_cpu_adaptation(false);
+    // FIXME: Activate ice candidate pool size once it no longer bothers test bots.
+    // rtcConfiguration.ice_candidate_pool_size = configuration.iceCandidatePoolSize;
+
     return rtcConfiguration;
 }
 
-void LibWebRTCPeerConnectionBackend::setConfiguration(MediaEndpointConfiguration&& configuration)
+bool LibWebRTCPeerConnectionBackend::setConfiguration(MediaEndpointConfiguration&& configuration)
 {
-    m_endpoint->backend().SetConfiguration(configurationFromMediaEndpointConfiguration(WTFMove(configuration)));
+    auto* page = downcast<Document>(*m_peerConnection.scriptExecutionContext()).page();
+    if (!page)
+        return false;
+
+    return m_endpoint->setConfiguration(page->libWebRTCProvider(), configurationFromMediaEndpointConfiguration(WTFMove(configuration)));
 }
 
 void LibWebRTCPeerConnectionBackend::getStats(MediaStreamTrack* track, Ref<DeferredPromise>&& promise)
@@ -125,8 +155,9 @@ void LibWebRTCPeerConnectionBackend::doSetLocalDescription(RTCSessionDescription
     m_endpoint->doSetLocalDescription(description);
     if (!m_isLocalDescriptionSet) {
         if (m_isRemoteDescriptionSet) {
-            while (m_pendingCandidates.size())
-                m_endpoint->addIceCandidate(*m_pendingCandidates.takeLast().release());
+            for (auto& candidate : m_pendingCandidates)
+                m_endpoint->addIceCandidate(*candidate);
+            m_pendingCandidates.clear();
         }
         m_isLocalDescriptionSet = true;
     }
@@ -137,22 +168,22 @@ void LibWebRTCPeerConnectionBackend::doSetRemoteDescription(RTCSessionDescriptio
     m_endpoint->doSetRemoteDescription(description);
     if (!m_isRemoteDescriptionSet) {
         if (m_isLocalDescriptionSet) {
-            while (m_pendingCandidates.size())
-                m_endpoint->addIceCandidate(*m_pendingCandidates.takeLast().release());
+            for (auto& candidate : m_pendingCandidates)
+                m_endpoint->addIceCandidate(*candidate);
         }
         m_isRemoteDescriptionSet = true;
     }
 }
 
-void LibWebRTCPeerConnectionBackend::doCreateOffer(RTCOfferOptions&&)
+void LibWebRTCPeerConnectionBackend::doCreateOffer(RTCOfferOptions&& options)
 {
-    m_endpoint->doCreateOffer();
+    m_endpoint->doCreateOffer(options);
 }
 
 void LibWebRTCPeerConnectionBackend::doCreateAnswer(RTCAnswerOptions&&)
 {
     if (!m_isRemoteDescriptionSet) {
-        createAnswerFailed(Exception { INVALID_STATE_ERR, "No remote description set" });
+        createAnswerFailed(Exception { InvalidStateError, "No remote description set" });
         return;
     }
     m_endpoint->doCreateAnswer();
@@ -160,23 +191,28 @@ void LibWebRTCPeerConnectionBackend::doCreateAnswer(RTCAnswerOptions&&)
 
 void LibWebRTCPeerConnectionBackend::doStop()
 {
+    for (auto& source : m_audioSources)
+        source->stop();
+    for (auto& source : m_videoSources)
+        source->stop();
+
     m_endpoint->stop();
+
+    m_audioSources.clear();
+    m_videoSources.clear();
+    m_statsPromises.clear();
+    m_remoteStreams.clear();
+    m_pendingReceivers.clear();
 }
 
 void LibWebRTCPeerConnectionBackend::doAddIceCandidate(RTCIceCandidate& candidate)
 {
-    if (!m_isRemoteDescriptionSet) {
-        addIceCandidateFailed(Exception { INVALID_STATE_ERR, "No remote description set" });
-        return;
-    }
-
     webrtc::SdpParseError error;
     int sdpMLineIndex = candidate.sdpMLineIndex() ? candidate.sdpMLineIndex().value() : 0;
     std::unique_ptr<webrtc::IceCandidateInterface> rtcCandidate(webrtc::CreateIceCandidate(candidate.sdpMid().utf8().data(), sdpMLineIndex, candidate.candidate().utf8().data(), &error));
 
     if (!rtcCandidate) {
-        String message(error.description.data(), error.description.size());
-        addIceCandidateFailed(Exception { OperationError, WTFMove(message) });
+        addIceCandidateFailed(Exception { OperationError, String::fromUTF8(error.description.data(), error.description.length()) });
         return;
     }
 
@@ -185,7 +221,7 @@ void LibWebRTCPeerConnectionBackend::doAddIceCandidate(RTCIceCandidate& candidat
         m_pendingCandidates.append(WTFMove(rtcCandidate));
     else if (!m_endpoint->addIceCandidate(*rtcCandidate.get())) {
         ASSERT_NOT_REACHED();
-        addIceCandidateFailed(Exception { OperationError, ASCIILiteral("Failed to apply the received candidate") });
+        addIceCandidateFailed(Exception { OperationError, "Failed to apply the received candidate"_s });
         return;
     }
     addIceCandidateSucceeded();
@@ -201,14 +237,72 @@ void LibWebRTCPeerConnectionBackend::addVideoSource(Ref<RealtimeOutgoingVideoSou
     m_videoSources.append(WTFMove(source));
 }
 
-Ref<RTCRtpReceiver> LibWebRTCPeerConnectionBackend::createReceiver(const String&, const String& trackKind, const String& trackId)
+static inline Ref<RTCRtpReceiver> createReceiverForSource(ScriptExecutionContext& context, Ref<RealtimeMediaSource>&& source)
 {
-    // FIXME: We need to create a source that will get fueled once we will receive OnAddStream.
-    // For the moment, we create an empty one.
-    auto remoteTrackPrivate = (trackKind == "audio") ? MediaStreamTrackPrivate::create(RealtimeIncomingAudioSource::create(nullptr, String(trackId))) : MediaStreamTrackPrivate::create(RealtimeIncomingVideoSource::create(nullptr, String(trackId)));
-    auto remoteTrack = MediaStreamTrack::create(*m_peerConnection.scriptExecutionContext(), WTFMove(remoteTrackPrivate));
+    auto remoteTrackPrivate = MediaStreamTrackPrivate::create(WTFMove(source), String { source->id() });
+    auto remoteTrack = MediaStreamTrack::create(context, WTFMove(remoteTrackPrivate));
 
     return RTCRtpReceiver::create(WTFMove(remoteTrack));
+}
+
+static inline Ref<RealtimeMediaSource> createEmptySource(const String& trackKind, String&& trackId)
+{
+    // FIXME: trackKind should be an enumeration
+    if (trackKind == "audio")
+        return RealtimeIncomingAudioSource::create(nullptr, WTFMove(trackId));
+    ASSERT(trackKind == "video");
+    return RealtimeIncomingVideoSource::create(nullptr, WTFMove(trackId));
+}
+
+Ref<RTCRtpReceiver> LibWebRTCPeerConnectionBackend::createReceiver(const String&, const String& trackKind, const String& trackId)
+{
+    auto receiver = createReceiverForSource(*m_peerConnection.scriptExecutionContext(), createEmptySource(trackKind, String(trackId)));
+    m_pendingReceivers.append(receiver.copyRef());
+    return receiver;
+}
+
+LibWebRTCPeerConnectionBackend::VideoReceiver LibWebRTCPeerConnectionBackend::videoReceiver(String&& trackId)
+{
+    // FIXME: Add to Vector a utility routine for that take-or-create pattern.
+    // FIXME: We should be selecting the receiver based on track id.
+    for (size_t cptr = 0; cptr < m_pendingReceivers.size(); ++cptr) {
+        if (m_pendingReceivers[cptr]->track()->source().type() == RealtimeMediaSource::Type::Video) {
+            Ref<RTCRtpReceiver> receiver = m_pendingReceivers[cptr].copyRef();
+            m_pendingReceivers.remove(cptr);
+            Ref<RealtimeIncomingVideoSource> source = static_cast<RealtimeIncomingVideoSource&>(receiver->track()->source());
+            return { WTFMove(receiver), WTFMove(source) };
+        }
+    }
+    auto source = RealtimeIncomingVideoSource::create(nullptr, WTFMove(trackId));
+    auto receiver = createReceiverForSource(*m_peerConnection.scriptExecutionContext(), source.copyRef());
+
+    auto transceiver = RTCRtpTransceiver::create(RTCRtpSender::create("video", { }, m_peerConnection), receiver.copyRef());
+    transceiver->disableSendingDirection();
+    m_peerConnection.addTransceiver(WTFMove(transceiver));
+
+    return { WTFMove(receiver), WTFMove(source) };
+}
+
+LibWebRTCPeerConnectionBackend::AudioReceiver LibWebRTCPeerConnectionBackend::audioReceiver(String&& trackId)
+{
+    // FIXME: Add to Vector a utility routine for that take-or-create pattern.
+    // FIXME: We should be selecting the receiver based on track id.
+    for (size_t cptr = 0; cptr < m_pendingReceivers.size(); ++cptr) {
+        if (m_pendingReceivers[cptr]->track()->source().type() == RealtimeMediaSource::Type::Audio) {
+            Ref<RTCRtpReceiver> receiver = m_pendingReceivers[cptr].copyRef();
+            m_pendingReceivers.remove(cptr);
+            Ref<RealtimeIncomingAudioSource> source = static_cast<RealtimeIncomingAudioSource&>(receiver->track()->source());
+            return { WTFMove(receiver), WTFMove(source) };
+        }
+    }
+    auto source = RealtimeIncomingAudioSource::create(nullptr, WTFMove(trackId));
+    auto receiver = createReceiverForSource(*m_peerConnection.scriptExecutionContext(), source.copyRef());
+
+    auto transceiver = RTCRtpTransceiver::create(RTCRtpSender::create("audio", { }, m_peerConnection), receiver.copyRef());
+    transceiver->disableSendingDirection();
+    m_peerConnection.addTransceiver(WTFMove(transceiver));
+
+    return { WTFMove(receiver), WTFMove(source) };
 }
 
 std::unique_ptr<RTCDataChannelHandler> LibWebRTCPeerConnectionBackend::createDataChannelHandler(const String& label, const RTCDataChannelInit& options)
@@ -216,14 +310,130 @@ std::unique_ptr<RTCDataChannelHandler> LibWebRTCPeerConnectionBackend::createDat
     return m_endpoint->createDataChannel(label, options);
 }
 
+RefPtr<RTCSessionDescription> LibWebRTCPeerConnectionBackend::currentLocalDescription() const
+{
+    auto description = m_endpoint->currentLocalDescription();
+    if (description)
+        description->setSdp(filterSDP(String(description->sdp())));
+    return description;
+}
+
+RefPtr<RTCSessionDescription> LibWebRTCPeerConnectionBackend::currentRemoteDescription() const
+{
+    return m_endpoint->currentRemoteDescription();
+}
+
+RefPtr<RTCSessionDescription> LibWebRTCPeerConnectionBackend::pendingLocalDescription() const
+{
+    auto description = m_endpoint->pendingLocalDescription();
+    if (description)
+        description->setSdp(filterSDP(String(description->sdp())));
+    return description;
+}
+
+RefPtr<RTCSessionDescription> LibWebRTCPeerConnectionBackend::pendingRemoteDescription() const
+{
+    return m_endpoint->pendingRemoteDescription();
+}
+
 RefPtr<RTCSessionDescription> LibWebRTCPeerConnectionBackend::localDescription() const
 {
-    return m_endpoint->localDescription();
+    auto description = m_endpoint->localDescription();
+    if (description)
+        description->setSdp(filterSDP(String(description->sdp())));
+    return description;
 }
 
 RefPtr<RTCSessionDescription> LibWebRTCPeerConnectionBackend::remoteDescription() const
 {
     return m_endpoint->remoteDescription();
+}
+
+void LibWebRTCPeerConnectionBackend::notifyAddedTrack(RTCRtpSender& sender)
+{
+    ASSERT(sender.track());
+    m_endpoint->addTrack(sender, *sender.track(), sender.mediaStreamIds());
+}
+
+void LibWebRTCPeerConnectionBackend::notifyRemovedTrack(RTCRtpSender& sender)
+{
+    m_endpoint->removeTrack(sender);
+}
+
+void LibWebRTCPeerConnectionBackend::removeRemoteStream(MediaStream* mediaStream)
+{
+    m_remoteStreams.removeFirstMatching([mediaStream](const auto& item) {
+        return item.get() == mediaStream;
+    });
+}
+
+void LibWebRTCPeerConnectionBackend::addRemoteStream(Ref<MediaStream>&& mediaStream)
+{
+    m_remoteStreams.append(WTFMove(mediaStream));
+}
+
+template<typename Source>
+static inline bool updateTrackSource(Source& source, MediaStreamTrack* track)
+{
+    if (!track) {
+        source->stop();
+        return true;
+    }
+    return source->setSource(track->privateTrack());
+}
+
+void LibWebRTCPeerConnectionBackend::replaceTrack(RTCRtpSender& sender, RefPtr<MediaStreamTrack>&& track, DOMPromiseDeferred<void>&& promise)
+{
+    ASSERT(sender.track());
+
+    auto* currentTrack = sender.track();
+
+    ASSERT(!track || currentTrack->source().type() == track->source().type());
+    switch (currentTrack->source().type()) {
+    case RealtimeMediaSource::Type::None:
+        ASSERT_NOT_REACHED();
+        promise.reject(InvalidModificationError);
+        break;
+    case RealtimeMediaSource::Type::Audio: {
+        for (auto& audioSource : m_audioSources) {
+            if (&audioSource->source() == &currentTrack->privateTrack()) {
+                if (!updateTrackSource(audioSource, track.get())) {
+                    promise.reject(InvalidModificationError);
+                    return;
+                }
+                connection().enqueueReplaceTrackTask(sender, WTFMove(track), WTFMove(promise));
+                return;
+            }
+        }
+        promise.reject(InvalidModificationError);
+        break;
+    }
+    case RealtimeMediaSource::Type::Video: {
+        for (auto& videoSource : m_videoSources) {
+            if (&videoSource->source() == &currentTrack->privateTrack()) {
+                if (!updateTrackSource(videoSource, track.get())) {
+                    promise.reject(InvalidModificationError);
+                    return;
+                }
+                connection().enqueueReplaceTrackTask(sender, WTFMove(track), WTFMove(promise));
+                return;
+            }
+        }
+        promise.reject(InvalidModificationError);
+        break;
+    }
+    }
+}
+
+RTCRtpParameters LibWebRTCPeerConnectionBackend::getParameters(RTCRtpSender& sender) const
+{
+    return m_endpoint->getRTCRtpSenderParameters(sender);
+}
+
+void LibWebRTCPeerConnectionBackend::applyRotationForOutgoingVideoSources()
+{
+    for (auto& source : m_videoSources)
+        source->setApplyRotation(true);
 }
 
 } // namespace WebCore

@@ -30,10 +30,9 @@
 
 #include "FloatRect.h"
 #include "WindRule.h"
-#include <functional>
 #include <wtf/FastMalloc.h>
+#include <wtf/Function.h>
 #include <wtf/Forward.h>
-#include <wtf/Vector.h>
 
 #if USE(CG)
 
@@ -68,9 +67,6 @@ typedef WebCore::PlatformPath PlatformPath;
 #elif PLATFORM(JAVA)
 #include <wtf/RefPtr.h>
 #include "RQRef.h"
-namespace WebCore {
-    class RQRef;
-}
 typedef RefPtr<WebCore::RQRef> PlatformPath;
 
 #else
@@ -85,6 +81,10 @@ typedef RefPtr<WebCore::RQRef> PlatformPathPtr;
 typedef PlatformPath* PlatformPathPtr;
 #endif
 
+namespace WTF {
+class TextStream;
+}
+
 namespace WebCore {
 
     class AffineTransform;
@@ -95,7 +95,6 @@ namespace WebCore {
     class PathTraversalState;
     class RoundedRect;
     class StrokeStyleApplier;
-    class TextStream;
 
     enum PathElementType {
         PathElementMoveToPoint, // The points member will contain 1 value.
@@ -113,7 +112,7 @@ namespace WebCore {
         FloatPoint* points;
     };
 
-    typedef std::function<void (const PathElement&)> PathApplierFunction;
+    using PathApplierFunction = WTF::Function<void (const PathElement&)>;
 
     class Path {
         WTF_MAKE_FAST_ALLOCATED;
@@ -125,11 +124,13 @@ namespace WebCore {
         WEBCORE_EXPORT ~Path();
 
         WEBCORE_EXPORT Path(const Path&);
+        WEBCORE_EXPORT Path(Path&&);
         WEBCORE_EXPORT Path& operator=(const Path&);
+        WEBCORE_EXPORT Path& operator=(Path&&);
 
         static Path polygonPathFromPoints(const Vector<FloatPoint>&);
 
-        bool contains(const FloatPoint&, WindRule rule = RULE_NONZERO) const;
+        bool contains(const FloatPoint&, WindRule = WindRule::NonZero) const;
         bool strokeContains(StrokeStyleApplier*, const FloatPoint&) const;
         // fastBoundingRect() should equal or contain boundingRect(); boundingRect()
         // should perfectly bound the points within the path.
@@ -224,7 +225,7 @@ namespace WebCore {
 #endif
     };
 
-TextStream& operator<<(TextStream&, const Path&);
+WTF::TextStream& operator<<(WTF::TextStream&, const Path&);
 
 }
 

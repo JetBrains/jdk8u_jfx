@@ -29,8 +29,34 @@
 #include "JSUIScriptController.h"
 #include "UIScriptContext.h"
 #include <JavaScriptCore/JSValueRef.h>
+#include <JavaScriptCore/OpaqueJSString.h>
 
 namespace WTR {
+
+DeviceOrientation* toDeviceOrientation(JSContextRef context, JSValueRef value)
+{
+    static DeviceOrientation values[] = {
+        DeviceOrientation::Portrait,
+        DeviceOrientation::PortraitUpsideDown,
+        DeviceOrientation::LandscapeLeft,
+        DeviceOrientation::LandscapeRight
+    };
+
+    JSRetainPtr<JSStringRef> option(Adopt, JSValueToStringCopy(context, value, nullptr));
+    if (option.get()->string() == "portrait")
+        return &values[0];
+
+    if (option.get()->string() == "portrait-upsidedown")
+        return &values[1];
+
+    if (option.get()->string() == "landscape-left")
+        return &values[2];
+
+    if (option.get()->string() == "landscape-right")
+        return &values[3];
+
+    return nullptr;
+}
 
 UIScriptController::UIScriptController(UIScriptContext& context)
     : m_context(&context)
@@ -194,6 +220,11 @@ JSObjectRef UIScriptController::contentsOfUserInterfaceItem(JSStringRef interfac
 }
 #endif
 
+void UIScriptController::playBackEventStream(JSStringRef stream, JSValueRef callback)
+{
+    platformPlayBackEventStream(stream, callback);
+}
+
 #if !PLATFORM(IOS)
 void UIScriptController::touchDownAtPoint(long x, long y, long touchCount, JSValueRef)
 {
@@ -239,19 +270,15 @@ void UIScriptController::sendEventStream(JSStringRef eventsJSON, JSValueRef call
 {
 }
 
+void UIScriptController::enterText(JSStringRef)
+{
+}
+
 void UIScriptController::typeCharacterUsingHardwareKeyboard(JSStringRef, JSValueRef)
 {
 }
 
 void UIScriptController::keyUpUsingHardwareKeyboard(JSStringRef, JSValueRef)
-{
-}
-
-void UIScriptController::selectTextCandidateAtIndex(long, JSValueRef)
-{
-}
-
-void UIScriptController::waitForTextPredictionsViewAndSelectCandidateAtIndex(long, unsigned, float)
 {
 }
 
@@ -263,8 +290,27 @@ void UIScriptController::dismissFormAccessoryView()
 {
 }
 
+void UIScriptController::setTimePickerValue(long, long)
+{
+}
+
 void UIScriptController::selectFormAccessoryPickerRow(long)
 {
+}
+
+JSRetainPtr<JSStringRef> UIScriptController::textContentType() const
+{
+    return nullptr;
+}
+
+JSRetainPtr<JSStringRef> UIScriptController::selectFormPopoverTitle() const
+{
+    return nullptr;
+}
+
+JSRetainPtr<JSStringRef> UIScriptController::formInputLabel() const
+{
+    return nullptr;
 }
 
 void UIScriptController::scrollToOffset(long x, long y)
@@ -284,6 +330,10 @@ void UIScriptController::keyboardAccessoryBarNext()
 }
 
 void UIScriptController::keyboardAccessoryBarPrevious()
+{
+}
+
+void UIScriptController::applyAutocorrection(JSStringRef, JSStringRef, JSValueRef)
 {
 }
 
@@ -326,6 +376,16 @@ JSObjectRef UIScriptController::textSelectionCaretRect() const
     return nullptr;
 }
 
+JSObjectRef UIScriptController::selectionStartGrabberViewRect() const
+{
+    return nullptr;
+}
+
+JSObjectRef UIScriptController::selectionEndGrabberViewRect() const
+{
+    return nullptr;
+}
+
 JSObjectRef UIScriptController::inputViewBounds() const
 {
     return nullptr;
@@ -336,6 +396,11 @@ void UIScriptController::removeAllDynamicDictionaries()
 }
 
 JSRetainPtr<JSStringRef> UIScriptController::scrollingTreeAsText() const
+{
+    return nullptr;
+}
+
+JSObjectRef UIScriptController::propertiesOfLayerWithID(uint64_t layerID) const
 {
     return nullptr;
 }
@@ -389,15 +454,39 @@ JSRetainPtr<JSStringRef> UIScriptController::accessibilitySpeakSelectionContent(
     return nullptr;
 }
 
+void UIScriptController::setSafeAreaInsets(double top, double right, double bottom, double left)
+{
+}
+
 #endif
 
 #if !PLATFORM(COCOA)
+
+void UIScriptController::simulateRotation(DeviceOrientation*, JSValueRef callback)
+{
+}
+
+void UIScriptController::simulateRotationLikeSafari(DeviceOrientation*, JSValueRef callback)
+{
+}
+
+void UIScriptController::findString(JSStringRef, unsigned long options, unsigned long maxCount)
+{
+}
 
 void UIScriptController::removeViewFromWindow(JSValueRef)
 {
 }
 
 void UIScriptController::addViewToWindow(JSValueRef)
+{
+}
+
+void UIScriptController::beginBackSwipe(JSValueRef callback)
+{
+}
+
+void UIScriptController::completeBackSwipe(JSValueRef callback)
 {
 }
 
@@ -409,8 +498,30 @@ void UIScriptController::overridePreference(JSStringRef, JSStringRef)
 {
 }
 
-void UIScriptController::insertText(JSStringRef, int, int)
+void UIScriptController::replaceTextAtRange(JSStringRef, int, int)
 {
+}
+
+void UIScriptController::platformPlayBackEventStream(JSStringRef, JSValueRef)
+{
+}
+
+void UIScriptController::firstResponderSuppressionForWebView(bool)
+{
+}
+
+void UIScriptController::makeWindowContentViewFirstResponder()
+{
+}
+
+bool UIScriptController::isWindowContentViewFirstResponder() const
+{
+    return false;
+}
+
+bool UIScriptController::isShowingDataListSuggestions() const
+{
+    return false;
 }
 
 #endif

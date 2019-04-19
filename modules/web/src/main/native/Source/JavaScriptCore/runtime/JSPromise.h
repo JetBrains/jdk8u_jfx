@@ -44,12 +44,15 @@ public:
         Rejected
     };
 
-    Status status(VM&) const;
-    JSValue result(VM&) const;
+    JS_EXPORT_PRIVATE Status status(VM&) const;
+    JS_EXPORT_PRIVATE JSValue result(VM&) const;
+    JS_EXPORT_PRIVATE bool isHandled(VM&) const;
 
     // Initialize the promise with the executor.
     // This may raise a JS exception.
     void initialize(ExecState*, JSGlobalObject*, JSValue executor);
+
+    JS_EXPORT_PRIVATE static JSPromise* resolve(JSGlobalObject&, JSValue);
 
 protected:
     JSPromise(VM&, Structure*);

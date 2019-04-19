@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,66 +21,23 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
-*/
+ */
 
 #include "config.h"
 
+#include "DragClientJava.h"
+#include "WebPage.h"
+
+#include <WebCore/Frame.h>
+#include <WebCore/Page.h>
+#include "DataTransfer.h"
 #include "NotImplemented.h"
 
-#include "Image.h"
-#include "CachedImage.h"
-#include "DragActions.h"
-#include "DragClient.h"
+
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
-#include <wtf/java/JavaEnv.h>
-#include "DragClientJava.h"
-
 namespace WebCore {
-
-// ---- DragImage.h ---- //
-IntSize dragImageSize(DragImageRef pr)
-{
-    return pr ? roundedIntSize(pr->size()) : IntSize();
-}
-
-DragImageRef scaleDragImage(DragImageRef pr, FloatSize)
-{
-    //TODO: pass to java
-    notImplemented();
-    return pr;
-}
-
-DragImageRef dissolveDragImageToFraction(DragImageRef pr, float)
-{
-    //TODO: pass to java
-    notImplemented();
-    return pr;
-}
-
-DragImageRef createDragImageFromImage(Image* img, ImageOrientationDescription)
-{
-    return img;
-}
-
-DragImageRef createDragImageIconForCachedImage(CachedImage *cimg)
-{
-    if (cimg->hasImage()) return nullptr;
-    return createDragImageFromImage(cimg->image(), ImageOrientationDescription(RespectImageOrientation)); // todo tav valid orientation?
-}
-
-void deleteDragImage(DragImageRef)
-{
-    // Since DragImageRef is a RefPtr, there's nothing additional we need to do to
-    // delete it. It will be released when it falls out of scope.
-}
-
-DragImageRef createDragImageIconForCachedImageFilename(const String&)
-{
-    return 0;
-}
-
 
 DragClientJava::DragClientJava(const JLObject &webPage)
     : m_webPage(webPage)
@@ -111,13 +68,6 @@ void DragClientJava::willPerformDragSourceAction(
     notImplemented();
 }
 
-DragDestinationAction DragClientJava::actionMaskForDrag(const DragData&)
-{
-    //TODO: check input element and produce correct respond
-    notImplemented();
-    return DragDestinationActionAny;
-}
-
 //We work in window rather than view coordinates here
 DragSourceAction DragClientJava::dragSourceActionMaskForPoint(const IntPoint&)
 {
@@ -126,15 +76,13 @@ DragSourceAction DragClientJava::dragSourceActionMaskForPoint(const IntPoint&)
     return DragSourceActionAny;
 }
 
-void DragClientJava::startDrag(
-    DragImage dragImage,
-    const IntPoint& dragImageOrigin,
-    const IntPoint& eventPos,
-    const FloatPoint&,
-    DataTransfer& DataTransfer,
-    Frame&,
-    DragSourceAction dragSourceAction)
+void DragClientJava::startDrag(DragItem item, DataTransfer& dataTransfer, Frame&)
 {
+    auto& dragImage = item.image;
+    auto dragImageOrigin = item.dragLocationInContentCoordinates;
+    auto eventPos = item.eventPositionInContentCoordinates;
+    auto dragSourceAction = item.sourceAction;
+
     JNIEnv* env = WebCore_GetJavaEnv();
     static jmethodID mid = env->GetMethodID(
         PG_GetWebPageClass(env),
@@ -151,39 +99,36 @@ void DragClientJava::startDrag(
     static JGClass clsString(env->FindClass("java/lang/String"));
     static JGClass clsObject(env->FindClass("java/lang/Object"));
 
-    Vector<String> mimeTypes(DataTransfer.typesPrivate());
+    // we are temporary changing dataTransfer security context
+    // for transfer-to-Java purposes.
+    auto actualStoreMode = dataTransfer.storeMode();
+    dataTransfer.setStoreMode(DataTransfer::StoreMode::Readonly);
+
+    Vector<String> mimeTypes(dataTransfer.types());
     JLObjectArray jmimeTypes(env->NewObjectArray(mimeTypes.size(), clsString, NULL));
     JLObjectArray jvalues(env->NewObjectArray(mimeTypes.size(), clsObject, NULL));
     CheckAndClearException(env); // OOME
 
-    {
-        //we are temporary changing DataTransfer security context
-        //for transfer-to-Java purposes.
-
-        DataTransferAccessPolicy actualJSPolicy = DataTransfer.policy();
-        DataTransfer.setAccessPolicy(DataTransferAccessPolicy::Readable); //XXX DataTransferReadable);
-
+    auto document = WebPage::pageFromJObject(m_webPage)->mainFrame().document();
+    if (document) {
         int index = 0;
-        Vector<String>::const_iterator end = mimeTypes.end();
-        for(Vector<String>::const_iterator i = mimeTypes.begin();
-            end!=i;
-            ++i, ++index)
-        {
-            String value( DataTransfer.getData(*i) );
+        for(const auto& mime : mimeTypes) {
+            String value = dataTransfer.getData(*document, mime);
 
             env->SetObjectArrayElement(
                 jmimeTypes,
                 index,
-                (jstring)i->toJavaString(env));
+                (jstring)mime.toJavaString(env));
 
             env->SetObjectArrayElement(
                 jvalues,
                 index,
                 (jstring)value.toJavaString(env));
+            index++;
         }
-
-        DataTransfer.setAccessPolicy(actualJSPolicy);
     }
+    // restore the original store mode
+    dataTransfer.setStoreMode(actualStoreMode);
 
     // Attention! [jimage] can be the instance of WCImage or WCImageFrame class.
     // The nature of raster is too different to make a conversion inside the native code.

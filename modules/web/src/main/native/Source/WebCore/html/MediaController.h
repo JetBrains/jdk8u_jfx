@@ -33,9 +33,12 @@
 #include "Timer.h"
 #include <wtf/Vector.h>
 
+namespace PAL {
+class Clock;
+}
+
 namespace WebCore {
 
-class Clock;
 class HTMLMediaElement;
 
 class MediaController final : public RefCounted<MediaController>, public MediaControllerInterface, public EventTargetWithInlineData {
@@ -142,10 +145,10 @@ private:
     mutable Timer m_clearPositionTimer;
     String m_mediaGroup;
     bool m_closedCaptionsVisible;
-    std::unique_ptr<Clock> m_clock;
+    std::unique_ptr<PAL::Clock> m_clock;
     ScriptExecutionContext& m_scriptExecutionContext;
     Timer m_timeupdateTimer;
-    double m_previousTimeupdateTime;
+    MonotonicTime m_previousTimeupdateTime;
     bool m_resetCurrentTimeInNextPlay { false };
 };
 

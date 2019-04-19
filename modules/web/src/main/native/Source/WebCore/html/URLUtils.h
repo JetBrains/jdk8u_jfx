@@ -186,7 +186,7 @@ void URLUtils<T>::setHost(const String& value)
 template <typename T>
 String URLUtils<T>::hostname() const
 {
-    return href().host();
+    return href().host().toString();
 }
 
 template <typename T>
@@ -277,9 +277,14 @@ template <typename T>
 void URLUtils<T>::setSearch(const String& value)
 {
     URL url = href();
-    String newSearch = (value[0U] == '?') ? value.substring(1) : value;
-    // Make sure that '#' in the query does not leak to the hash.
-    url.setQuery(newSearch.replaceWithLiteral('#', "%23"));
+    if (value.isEmpty()) {
+        // If the given value is the empty string, set url's query to null.
+        url.setQuery({ });
+    } else {
+        String newSearch = (value[0U] == '?') ? value.substring(1) : value;
+        // Make sure that '#' in the query does not leak to the hash.
+        url.setQuery(newSearch.replaceWithLiteral('#', "%23"));
+    }
 
     setHref(url.string());
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Andy VanWagoner (thetalecrafter@gmail.com)
+ * Copyright (C) 2015 Andy VanWagoner (andy@vanwagoner.family)
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,13 +29,16 @@
 
 #include "JSDestructibleObject.h"
 #include <unicode/udat.h>
+#include <unicode/uvernum.h>
+
+#define JSC_ICU_HAS_UFIELDPOSITER (U_ICU_VERSION_MAJOR_NUM >= 55)
 
 namespace JSC {
 
 class IntlDateTimeFormatConstructor;
 class JSBoundFunction;
 
-class IntlDateTimeFormat : public JSDestructibleObject {
+class IntlDateTimeFormat final : public JSDestructibleObject {
 public:
     typedef JSDestructibleObject Base;
 
@@ -46,6 +49,9 @@ public:
 
     void initializeDateTimeFormat(ExecState&, JSValue locales, JSValue options);
     JSValue format(ExecState&, double value);
+#if JSC_ICU_HAS_UFIELDPOSITER
+    JSValue formatToParts(ExecState&, double value);
+#endif
     JSObject* resolvedOptions(ExecState&);
 
     JSBoundFunction* boundFormat() const { return m_boundFormat.get(); }
@@ -73,15 +79,15 @@ private:
     };
 
     void setFormatsFromPattern(const StringView&);
-    static const char* weekdayString(Weekday);
-    static const char* eraString(Era);
-    static const char* yearString(Year);
-    static const char* monthString(Month);
-    static const char* dayString(Day);
-    static const char* hourString(Hour);
-    static const char* minuteString(Minute);
-    static const char* secondString(Second);
-    static const char* timeZoneNameString(TimeZoneName);
+    static ASCIILiteral weekdayString(Weekday);
+    static ASCIILiteral eraString(Era);
+    static ASCIILiteral yearString(Year);
+    static ASCIILiteral monthString(Month);
+    static ASCIILiteral dayString(Day);
+    static ASCIILiteral hourString(Hour);
+    static ASCIILiteral minuteString(Minute);
+    static ASCIILiteral secondString(Second);
+    static ASCIILiteral timeZoneNameString(TimeZoneName);
 
     bool m_initializedDateTimeFormat { false };
     WriteBarrier<JSBoundFunction> m_boundFormat;
@@ -91,7 +97,7 @@ private:
     String m_calendar;
     String m_numberingSystem;
     String m_timeZone;
-    bool m_hour12 { true };
+    String m_hourCycle;
     Weekday m_weekday { Weekday::None };
     Era m_era { Era::None };
     Year m_year { Year::None };
@@ -101,6 +107,14 @@ private:
     Minute m_minute { Minute::None };
     Second m_second { Second::None };
     TimeZoneName m_timeZoneName { TimeZoneName::None };
+
+#if JSC_ICU_HAS_UFIELDPOSITER
+    struct UFieldPositionIteratorDeleter {
+        void operator()(UFieldPositionIterator*) const;
+    };
+
+    static ASCIILiteral partTypeString(UDateFormatField);
+#endif
 };
 
 } // namespace JSC

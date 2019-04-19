@@ -45,11 +45,25 @@ TextPaintStyle::TextPaintStyle(const Color& color)
 {
 }
 
+bool TextPaintStyle::operator==(const TextPaintStyle& other) const
+{
+    return fillColor == other.fillColor && strokeColor == other.strokeColor && emphasisMarkColor == other.emphasisMarkColor
+        && strokeWidth == other.strokeWidth && paintOrder == other.paintOrder && lineJoin == other.lineJoin
+#if ENABLE(LETTERPRESS)
+        && useLetterpressEffect == other.useLetterpressEffect
+#endif
+        && lineCap == other.lineCap && miterLimit == other.miterLimit;
+}
+
+bool textColorIsLegibleAgainstBackgroundColor(const Color& textColor, const Color& backgroundColor)
+{
+    // Semi-arbitrarily chose 65025 (255^2) value here after a few tests.
+    return differenceSquared(textColor, backgroundColor) > 65025;
+}
+
 static Color adjustColorForVisibilityOnBackground(const Color& textColor, const Color& backgroundColor)
 {
-    int d = differenceSquared(textColor, backgroundColor);
-    // Semi-arbitrarily chose 65025 (255^2) value here after a few tests.
-    if (d > 65025)
+    if (textColorIsLegibleAgainstBackgroundColor(textColor, backgroundColor))
         return textColor;
 
     int distanceFromWhite = differenceSquared(textColor, Color::white);
@@ -65,9 +79,14 @@ TextPaintStyle computeTextPaintStyle(const Frame& frame, const RenderStyle& line
     TextPaintStyle paintStyle;
 
 #if ENABLE(LETTERPRESS)
-    paintStyle.useLetterpressEffect = lineStyle.textDecorationsInEffect() & TextDecorationLetterpress;
+    paintStyle.useLetterpressEffect = lineStyle.textDecorationsInEffect().contains(TextDecoration::Letterpress);
 #endif
-    paintStyle.strokeWidth = lineStyle.textStrokeWidth();
+    auto viewportSize = frame.view() ? frame.view()->size() : IntSize();
+    paintStyle.strokeWidth = lineStyle.computedStrokeWidth(viewportSize);
+    paintStyle.paintOrder = lineStyle.paintOrder();
+    paintStyle.lineJoin = lineStyle.joinStyle();
+    paintStyle.lineCap = lineStyle.capStyle();
+    paintStyle.miterLimit = lineStyle.strokeMiterLimit();
 
     if (paintInfo.forceTextColor()) {
         paintStyle.fillColor = paintInfo.forcedTextColor();
@@ -79,16 +98,19 @@ TextPaintStyle computeTextPaintStyle(const Frame& frame, const RenderStyle& line
     if (lineStyle.insideDefaultButton()) {
         Page* page = frame.page();
         if (page && page->focusController().isActive()) {
-            paintStyle.fillColor = page->theme().systemColor(CSSValueActivebuttontext);
+            OptionSet<StyleColor::Options> options;
+            if (page->useSystemAppearance())
+                options |= StyleColor::Options::UseSystemAppearance;
+            paintStyle.fillColor = RenderTheme::singleton().systemColor(CSSValueActivebuttontext, options);
             return paintStyle;
         }
     }
 
-    paintStyle.fillColor = lineStyle.visitedDependentColor(CSSPropertyWebkitTextFillColor);
+    paintStyle.fillColor = lineStyle.visitedDependentColorWithColorFilter(CSSPropertyWebkitTextFillColor);
 
     bool forceBackgroundToWhite = false;
     if (frame.document() && frame.document()->printing()) {
-        if (lineStyle.printColorAdjust() == PrintColorAdjustEconomy)
+        if (lineStyle.printColorAdjust() == PrintColorAdjust::Economy)
             forceBackgroundToWhite = true;
         if (frame.settings().shouldPrintBackgrounds())
             forceBackgroundToWhite = false;
@@ -98,13 +120,13 @@ TextPaintStyle computeTextPaintStyle(const Frame& frame, const RenderStyle& line
     if (forceBackgroundToWhite)
         paintStyle.fillColor = adjustColorForVisibilityOnBackground(paintStyle.fillColor, Color::white);
 
-    paintStyle.strokeColor = lineStyle.visitedDependentColor(CSSPropertyWebkitTextStrokeColor);
+    paintStyle.strokeColor = lineStyle.colorByApplyingColorFilter(lineStyle.computedStrokeColor());
 
     // Make the text stroke color legible against a white background
     if (forceBackgroundToWhite)
         paintStyle.strokeColor = adjustColorForVisibilityOnBackground(paintStyle.strokeColor, Color::white);
 
-    paintStyle.emphasisMarkColor = lineStyle.visitedDependentColor(CSSPropertyWebkitTextEmphasisColor);
+    paintStyle.emphasisMarkColor = lineStyle.visitedDependentColorWithColorFilter(CSSPropertyWebkitTextEmphasisColor);
 
     // Make the text stroke color legible against a white background
     if (forceBackgroundToWhite)
@@ -113,55 +135,36 @@ TextPaintStyle computeTextPaintStyle(const Frame& frame, const RenderStyle& line
     return paintStyle;
 }
 
-TextPaintStyle computeTextSelectionPaintStyle(const TextPaintStyle& textPaintStyle, const RenderText& renderer, const RenderStyle& lineStyle, const PaintInfo& paintInfo, bool& paintSelectedTextOnly, bool& paintSelectedTextSeparately, const ShadowData*& selectionShadow)
+TextPaintStyle computeTextSelectionPaintStyle(const TextPaintStyle& textPaintStyle, const RenderText& renderer, const RenderStyle& lineStyle, const PaintInfo& paintInfo, std::optional<ShadowData>& selectionShadow)
 {
-    paintSelectedTextOnly = (paintInfo.phase == PaintPhaseSelection);
-    paintSelectedTextSeparately = false;
-    selectionShadow = (paintInfo.forceTextColor()) ? nullptr : lineStyle.textShadow();
-
     TextPaintStyle selectionPaintStyle = textPaintStyle;
 
 #if ENABLE(TEXT_SELECTION)
     Color foreground = paintInfo.forceTextColor() ? paintInfo.forcedTextColor() : renderer.selectionForegroundColor();
-    if (foreground.isValid() && foreground != selectionPaintStyle.fillColor) {
-        if (!paintSelectedTextOnly)
-            paintSelectedTextSeparately = true;
+    if (foreground.isValid() && foreground != selectionPaintStyle.fillColor)
         selectionPaintStyle.fillColor = foreground;
-    }
 
     Color emphasisMarkForeground = paintInfo.forceTextColor() ? paintInfo.forcedTextColor() : renderer.selectionEmphasisMarkColor();
-    if (emphasisMarkForeground.isValid() && emphasisMarkForeground != selectionPaintStyle.emphasisMarkColor) {
-        if (!paintSelectedTextOnly)
-            paintSelectedTextSeparately = true;
+    if (emphasisMarkForeground.isValid() && emphasisMarkForeground != selectionPaintStyle.emphasisMarkColor)
         selectionPaintStyle.emphasisMarkColor = emphasisMarkForeground;
-    }
 
-    if (auto* pseudoStyle = renderer.getCachedPseudoStyle(SELECTION)) {
-        const ShadowData* shadow = paintInfo.forceTextColor() ? nullptr : pseudoStyle->textShadow();
-        if (shadow != selectionShadow) {
-            if (!paintSelectedTextOnly)
-                paintSelectedTextSeparately = true;
-            selectionShadow = shadow;
-        }
-
-        float strokeWidth = pseudoStyle->textStrokeWidth();
-        if (strokeWidth != selectionPaintStyle.strokeWidth) {
-            if (!paintSelectedTextOnly)
-                paintSelectedTextSeparately = true;
+    if (auto pseudoStyle = renderer.selectionPseudoStyle()) {
+        selectionShadow = ShadowData::clone(paintInfo.forceTextColor() ? nullptr : pseudoStyle->textShadow());
+        auto viewportSize = renderer.frame().view() ? renderer.frame().view()->size() : IntSize();
+        float strokeWidth = pseudoStyle->computedStrokeWidth(viewportSize);
+        if (strokeWidth != selectionPaintStyle.strokeWidth)
             selectionPaintStyle.strokeWidth = strokeWidth;
-        }
 
-        Color stroke = paintInfo.forceTextColor() ? paintInfo.forcedTextColor() : pseudoStyle->visitedDependentColor(CSSPropertyWebkitTextStrokeColor);
-        if (stroke != selectionPaintStyle.strokeColor) {
-            if (!paintSelectedTextOnly)
-                paintSelectedTextSeparately = true;
+        Color stroke = paintInfo.forceTextColor() ? paintInfo.forcedTextColor() : pseudoStyle->computedStrokeColor();
+        if (stroke != selectionPaintStyle.strokeColor)
             selectionPaintStyle.strokeColor = stroke;
-        }
-    }
+    } else
+        selectionShadow = ShadowData::clone(paintInfo.forceTextColor() ? nullptr : lineStyle.textShadow());
 #else
     UNUSED_PARAM(renderer);
     UNUSED_PARAM(lineStyle);
     UNUSED_PARAM(paintInfo);
+    selectionShadow = ShadowData::clone(paintInfo.forceTextColor() ? nullptr : lineStyle.textShadow());
 #endif
     return selectionPaintStyle;
 }
@@ -176,7 +179,7 @@ void updateGraphicsContext(GraphicsContext& context, const TextPaintStyle& paint
     else
         newMode &= ~TextModeLetterpress;
 #endif
-    if (paintStyle.strokeWidth > 0)
+    if (paintStyle.strokeWidth > 0 && paintStyle.strokeColor.isVisible())
         newMode |= TextModeStroke;
     if (mode != newMode) {
         context.setTextDrawingMode(newMode);
@@ -192,6 +195,10 @@ void updateGraphicsContext(GraphicsContext& context, const TextPaintStyle& paint
             context.setStrokeColor(paintStyle.strokeColor);
         if (paintStyle.strokeWidth != context.strokeThickness())
             context.setStrokeThickness(paintStyle.strokeWidth);
+        context.setLineJoin(paintStyle.lineJoin);
+        context.setLineCap(paintStyle.lineCap);
+        if (paintStyle.lineJoin == MiterJoin)
+            context.setMiterLimit(paintStyle.miterLimit);
     }
 }
 

@@ -27,11 +27,13 @@
 #define MediaSample_h
 
 #include "FloatSize.h"
+#include <JavaScriptCore/TypedArrays.h>
 #include <wtf/MediaTime.h>
 #include <wtf/RefCounted.h>
 #include <wtf/text/AtomicString.h>
 
 typedef struct opaqueCMSampleBuffer *CMSampleBufferRef;
+typedef struct _GstSample GstSample;
 
 namespace WebCore {
 
@@ -42,16 +44,18 @@ struct PlatformSample {
         None,
         MockSampleBoxType,
         CMSampleBufferType,
+        GStreamerSampleType,
     } type;
     union {
         MockSampleBox* mockSampleBox;
         CMSampleBufferRef cmSampleBuffer;
+        GstSample* gstSample;
     } sample;
 };
 
 class MediaSample : public RefCounted<MediaSample> {
 public:
-    virtual ~MediaSample() { }
+    virtual ~MediaSample() = default;
 
     virtual MediaTime presentationTime() const = 0;
     virtual MediaTime outputPresentationTime() const { return presentationTime(); }
@@ -69,16 +73,29 @@ public:
     virtual std::pair<RefPtr<MediaSample>, RefPtr<MediaSample>> divide(const MediaTime& presentationTime) = 0;
     virtual Ref<MediaSample> createNonDisplayingCopy() const = 0;
 
+    virtual RefPtr<JSC::Uint8ClampedArray> getRGBAImageData() const { return nullptr; }
+
     enum SampleFlags {
         None = 0,
         IsSync = 1 << 0,
         IsNonDisplaying = 1 << 1,
+        HasAlpha = 1 << 2,
     };
     virtual SampleFlags flags() const = 0;
     virtual PlatformSample platformSample() = 0;
 
+    enum class VideoRotation {
+        None = 0,
+        UpsideDown = 180,
+        Right = 90,
+        Left = 270,
+    };
+    virtual VideoRotation videoRotation() const { return VideoRotation::None; }
+    virtual bool videoMirrored() const { return false; }
+
     bool isSync() const { return flags() & IsSync; }
     bool isNonDisplaying() const { return flags() & IsNonDisplaying; }
+    bool hasAlpha() const { return flags() & HasAlpha; }
 
     virtual void dump(PrintStream&) const = 0;
 };

@@ -34,14 +34,15 @@
 
 #if ENABLE(VIDEO_TRACK)
 
+#include "Document.h"
 #include "Event.h"
-#include "ExceptionCode.h"
 #include "HTMLMediaElement.h"
 #include "SourceBuffer.h"
 #include "TextTrackCueList.h"
 #include "TextTrackList.h"
 #include "VTTRegion.h"
 #include "VTTRegionList.h"
+#include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
@@ -83,19 +84,19 @@ static const AtomicString& forcedKeyword()
 
 TextTrack* TextTrack::captionMenuOffItem()
 {
-    static TextTrack& off = TextTrack::create(nullptr, nullptr, "off menu item", emptyAtom, emptyAtom, emptyAtom).leakRef();
+    static TextTrack& off = TextTrack::create(nullptr, nullptr, "off menu item", emptyAtom(), emptyAtom(), emptyAtom()).leakRef();
     return &off;
 }
 
 TextTrack* TextTrack::captionMenuAutomaticItem()
 {
-    static TextTrack& automatic = TextTrack::create(nullptr, nullptr, "automatic menu item", emptyAtom, emptyAtom, emptyAtom).leakRef();
+    static TextTrack& automatic = TextTrack::create(nullptr, nullptr, "automatic menu item", emptyAtom(), emptyAtom(), emptyAtom()).leakRef();
     return &automatic;
 }
 
 TextTrack::TextTrack(ScriptExecutionContext* context, TextTrackClient* client, const AtomicString& kind, const AtomicString& id, const AtomicString& label, const AtomicString& language, TextTrackType type)
     : TrackBase(TrackBase::TextTrack, id, label, language)
-    , m_scriptExecutionContext(context)
+    , ContextDestructionObserver(context)
     , m_client(client)
     , m_trackType(type)
 {
@@ -188,7 +189,7 @@ void TextTrack::setKind(Kind newKind)
     // 4. Queue a task to fire a simple event named change at the TextTrackList object referenced by
     // the textTracks attribute on the HTMLMediaElement.
     if (mediaElement())
-        mediaElement()->textTracks().scheduleChangeEvent();
+        mediaElement()->ensureTextTracks().scheduleChangeEvent();
 #endif
 
     if (m_client && oldKind != m_kind)
@@ -234,9 +235,9 @@ void TextTrack::setMode(Mode mode)
 
     if (mode != Mode::Showing && m_cues) {
         for (size_t i = 0; i < m_cues->length(); ++i) {
-            TextTrackCue* cue = m_cues->item(i);
+            RefPtr<TextTrackCue> cue = m_cues->item(i);
             if (cue->isRenderable())
-                toVTTCue(cue)->removeDisplayTree();
+                toVTTCue(cue.get())->removeDisplayTree();
         }
     }
 
@@ -269,7 +270,7 @@ void TextTrack::removeAllCues()
     for (size_t i = 0; i < m_cues->length(); ++i)
         m_cues->item(i)->setTrack(nullptr);
 
-    m_cues = nullptr;
+    m_cues->clear();
 }
 
 TextTrackCueList* TextTrack::activeCues() const
@@ -294,7 +295,7 @@ ExceptionOr<void> TextTrack::addCue(Ref<TextTrackCue>&& cue)
     // track kind set to metadata, throw a InvalidNodeTypeError exception and don't add the cue to the TextTrackList
     // of the TextTrack.
     if (cue->cueType() == TextTrackCue::Data && m_kind != Kind::Metadata)
-        return Exception { INVALID_NODE_TYPE_ERR };
+        return Exception { InvalidNodeTypeError };
 
     // TODO(93143): Add spec-compliant behavior for negative time values.
     if (!cue->startMediaTime().isValid() || !cue->endMediaTime().isValid() || cue->startMediaTime() < MediaTime::zeroTime() || cue->endMediaTime() < MediaTime::zeroTime())
@@ -304,7 +305,7 @@ ExceptionOr<void> TextTrack::addCue(Ref<TextTrackCue>&& cue)
 
     // The addCue(cue) method of TextTrack objects, when invoked, must run the following steps:
 
-    auto* cueTrack = cue->track();
+    auto cueTrack = makeRefPtr(cue->track());
     if (cueTrack == this)
         return { };
 
@@ -332,9 +333,11 @@ ExceptionOr<void> TextTrack::removeCue(TextTrackCue& cue)
     // 1. If the given cue is not currently listed in the method's TextTrack
     // object's text track's text track list of cues, then throw a NotFoundError exception.
     if (cue.track() != this)
-        return Exception { NOT_FOUND_ERR };
+        return Exception { NotFoundError };
     if (!m_cues)
-        return Exception { INVALID_STATE_ERR };
+        return Exception { InvalidStateError };
+
+    DEBUG_LOG(LOGIDENTIFIER, cue);
 
     // 2. Remove cue from the method's TextTrack object's text track's text track list of cues.
     m_cues->remove(cue);
@@ -376,7 +379,7 @@ void TextTrack::addRegion(RefPtr<VTTRegion>&& region)
 
     // 1. If the given region is in a text track list of regions, then remove
     // region from that text track list of regions.
-    auto* regionTrack = region->track();
+    auto regionTrack = makeRefPtr(region->track());
     if (regionTrack && regionTrack != this)
         regionTrack->removeRegion(region.get());
 
@@ -384,7 +387,7 @@ void TextTrack::addRegion(RefPtr<VTTRegion>&& region)
     // a region with the same identifier as region replace the values of that
     // region's width, height, anchor point, viewport anchor point and scroll
     // attributes with those of region.
-    auto* existingRegion = regionList.getRegionById(region->id());
+    auto existingRegion = makeRefPtr(regionList.getRegionById(region->id()));
     if (existingRegion) {
         existingRegion->updateParametersFromRegion(*region);
         return;
@@ -403,7 +406,7 @@ ExceptionOr<void> TextTrack::removeRegion(VTTRegion* region)
     // 1. If the given region is not currently listed in the method's TextTrack
     // object's text track list of regions, then throw a NotFoundError exception.
     if (region->track() != this)
-        return Exception { NOT_FOUND_ERR };
+        return Exception { NotFoundError };
 
     ASSERT(m_regions);
     m_regions->remove(*region);
@@ -437,7 +440,7 @@ int TextTrack::trackIndex()
 {
     ASSERT(m_mediaElement);
     if (!m_trackIndex)
-        m_trackIndex = m_mediaElement->textTracks().getTrackIndex(*this);
+        m_trackIndex = m_mediaElement->ensureTextTracks().getTrackIndex(*this);
     return m_trackIndex.value();
 }
 
@@ -464,7 +467,7 @@ int TextTrack::trackIndexRelativeToRenderedTracks()
 {
     ASSERT(m_mediaElement);
     if (!m_renderedTrackIndex)
-        m_renderedTrackIndex = m_mediaElement->textTracks().getTrackIndexRelativeToRenderedTracks(*this);
+        m_renderedTrackIndex = m_mediaElement->ensureTextTracks().getTrackIndexRelativeToRenderedTracks(*this);
     return m_renderedTrackIndex.value();
 }
 
@@ -483,7 +486,7 @@ bool TextTrack::hasCue(TextTrackCue* cue, TextTrackCue::CueMatchRules match)
         ASSERT(searchStart <= m_cues->length());
         ASSERT(searchEnd <= m_cues->length());
 
-        TextTrackCue* existingCue;
+        RefPtr<TextTrackCue> existingCue;
 
         // Cues in the TextTrackCueList are maintained in start time order.
         if (searchStart == searchEnd) {
@@ -542,7 +545,6 @@ bool TextTrack::containsOnlyForcedSubtitles() const
 }
 
 #if ENABLE(MEDIA_SOURCE)
-
 void TextTrack::setLanguage(const AtomicString& language)
 {
     // 11.1 language, on setting:
@@ -562,9 +564,8 @@ void TextTrack::setLanguage(const AtomicString& language)
     // 4. Queue a task to fire a simple event named change at the TextTrackList object referenced by
     // the textTracks attribute on the HTMLMediaElement.
     if (mediaElement())
-        mediaElement()->textTracks().scheduleChangeEvent();
+        mediaElement()->ensureTextTracks().scheduleChangeEvent();
 }
-
 #endif
 
 } // namespace WebCore

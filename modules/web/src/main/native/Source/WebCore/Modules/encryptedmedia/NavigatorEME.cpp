@@ -60,7 +60,7 @@ void NavigatorEME::requestMediaKeySystemAccess(Navigator&, Document& document, c
         // 6.1. If keySystem is not one of the Key Systems supported by the user agent, reject promise with a NotSupportedError.
         //      String comparison is case-sensitive.
         if (!CDM::supportsKeySystem(keySystem)) {
-            promise->reject(NOT_SUPPORTED_ERR);
+            promise->reject(NotSupportedError);
             return;
         }
 
@@ -77,7 +77,7 @@ static void tryNextSupportedConfiguration(RefPtr<CDM>&& implementation, Vector<M
         // 6.3.1. Let candidate configuration be the value.
         // 6.3.2. Let supported configuration be the result of executing the Get Supported Configuration
         //        algorithm on implementation, candidate configuration, and origin.
-        MediaKeySystemConfiguration candidateCofiguration = WTFMove(supportedConfigurations.first());
+        MediaKeySystemConfiguration candidateConfiguration = WTFMove(supportedConfigurations.first());
         supportedConfigurations.remove(0);
 
         CDM::SupportedConfigurationCallback callback = [implementation = implementation, supportedConfigurations = WTFMove(supportedConfigurations), promise] (std::optional<MediaKeySystemConfiguration> supportedConfiguration) mutable {
@@ -87,7 +87,11 @@ static void tryNextSupportedConfiguration(RefPtr<CDM>&& implementation, Vector<M
                 // 6.3.3.1.1. Set the keySystem attribute to keySystem.
                 // 6.3.3.1.2. Let the configuration value be supported configuration.
                 // 6.3.3.1.3. Let the cdm implementation value be implementation.
-                auto access = MediaKeySystemAccess::create(implementation->keySystem(), WTFMove(supportedConfiguration.value()), implementation.releaseNonNull());
+
+                // Obtain reference to the key system string before the `implementation` RefPtr<> is cleared out.
+                const String& keySystem = implementation->keySystem();
+                auto access = MediaKeySystemAccess::create(keySystem, WTFMove(supportedConfiguration.value()), implementation.releaseNonNull());
+
                 // 6.3.3.2. Resolve promise with access and abort the parallel steps of this algorithm.
                 promise->resolveWithNewlyCreated<IDLInterface<MediaKeySystemAccess>>(WTFMove(access));
                 return;
@@ -95,13 +99,13 @@ static void tryNextSupportedConfiguration(RefPtr<CDM>&& implementation, Vector<M
 
             tryNextSupportedConfiguration(WTFMove(implementation), WTFMove(supportedConfigurations), WTFMove(promise));
         };
-        implementation->getSupportedConfiguration(WTFMove(candidateCofiguration), WTFMove(callback));
+        implementation->getSupportedConfiguration(WTFMove(candidateConfiguration), WTFMove(callback));
         return;
     }
 
 
     // 6.4. Reject promise with a NotSupportedError.
-    promise->reject(NOT_SUPPORTED_ERR);
+    promise->reject(NotSupportedError);
 }
 
 } // namespace WebCore

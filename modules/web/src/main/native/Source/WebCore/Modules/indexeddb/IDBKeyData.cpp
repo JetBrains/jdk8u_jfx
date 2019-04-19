@@ -242,7 +242,7 @@ bool IDBKeyData::decode(KeyedDecoder& decoder, IDBKeyData& result)
         if (!decoder.decodeBytes("binary", bytes))
             return false;
 
-        result.m_value = ThreadSafeDataBuffer::adoptVector(bytes);
+        result.m_value = ThreadSafeDataBuffer::create(WTFMove(bytes));
         return true;
     }
 
@@ -371,7 +371,7 @@ String IDBKeyData::loggingString() const
 
     if (result.length() > 150) {
         result.truncate(147);
-        result.append(WTF::ASCIILiteral("..."));
+        result.append("..."_s);
     }
 
     return result;
@@ -424,6 +424,21 @@ IDBKeyData IDBKeyData::deletedValue()
     result.m_isNull = false;
     result.m_isDeletedValue = true;
     return result;
+}
+
+bool IDBKeyData::isValid() const
+{
+    if (m_type == KeyType::Invalid)
+        return false;
+
+    if (m_type == KeyType::Array) {
+        for (auto& key : array()) {
+            if (!key.isValid())
+                return false;
+        }
+    }
+
+    return true;
 }
 
 bool IDBKeyData::operator<(const IDBKeyData& rhs) const

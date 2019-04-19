@@ -26,6 +26,7 @@
 #include "PODIntervalTree.h"
 #include "RootInlineBox.h"
 #include <wtf/ListHashSet.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -43,10 +44,10 @@ public:
     std::unique_ptr<FloatingObject> cloneForNewParent() const;
 
     explicit FloatingObject(RenderBox&);
-    FloatingObject(RenderBox&, Type, const LayoutRect&, bool shouldPaint, bool isDescendant);
+    FloatingObject(RenderBox&, Type, const LayoutRect&, const LayoutSize&, bool shouldPaint, bool isDescendant);
 
     Type type() const { return static_cast<Type>(m_type); }
-    RenderBox& renderer() const { return m_renderer; }
+    RenderBox& renderer() const { return *m_renderer; }
 
     bool isPlaced() const { return m_isPlaced; }
     void setIsPlaced(bool placed = true) { m_isPlaced = placed; }
@@ -62,6 +63,8 @@ public:
     void setY(LayoutUnit y) { ASSERT(!isInPlacedTree()); m_frameRect.setY(y); }
     void setWidth(LayoutUnit width) { ASSERT(!isInPlacedTree()); m_frameRect.setWidth(width); }
     void setHeight(LayoutUnit height) { ASSERT(!isInPlacedTree()); m_frameRect.setHeight(height); }
+
+    void setMarginOffset(LayoutSize offset) { ASSERT(!isInPlacedTree()); m_marginOffset = offset; }
 
     const LayoutRect& frameRect() const { ASSERT(isPlaced()); return m_frameRect; }
     void setFrameRect(const LayoutRect& frameRect) { ASSERT(!isInPlacedTree()); m_frameRect = frameRect; }
@@ -80,14 +83,24 @@ public:
     void setIsDescendant(bool isDescendant) { m_isDescendant = isDescendant; }
 
     // FIXME: Callers of these methods are dangerous and should be whitelisted explicitly or removed.
-    RootInlineBox* originatingLine() const { return m_originatingLine; }
-    void setOriginatingLine(RootInlineBox* line) { m_originatingLine = line; }
+    RootInlineBox* originatingLine() const { return m_originatingLine.get(); }
+    void clearOriginatingLine() { m_originatingLine = nullptr; }
+    void setOriginatingLine(RootInlineBox& line) { m_originatingLine = makeWeakPtr(line); }
+
+    LayoutSize locationOffsetOfBorderBox() const
+    {
+        ASSERT(isPlaced());
+        return LayoutSize(m_frameRect.location().x() + m_marginOffset.width(), m_frameRect.location().y() + m_marginOffset.height());
+    }
+    LayoutSize marginOffset() const { ASSERT(isPlaced()); return m_marginOffset; }
+    LayoutSize translationOffsetToAncestor() const;
 
 private:
-    RenderBox& m_renderer;
-    RootInlineBox* m_originatingLine;
+    WeakPtr<RenderBox> m_renderer;
+    WeakPtr<RootInlineBox> m_originatingLine;
     LayoutRect m_frameRect;
     LayoutUnit m_paginationStrut;
+    LayoutSize m_marginOffset;
 
     unsigned m_type : 2; // Type (left or right aligned)
     unsigned m_shouldPaint : 1;
@@ -148,6 +161,7 @@ public:
     LayoutUnit findNextFloatLogicalBottomBelowForBlock(LayoutUnit logicalHeight);
 
 private:
+    const RenderBlockFlow& renderer() const { return *m_renderer; }
     void computePlacedFloatsTree();
     const FloatingObjectTree* placedFloatsTree();
     void increaseObjectsCount(FloatingObject::Type);
@@ -159,17 +173,21 @@ private:
     unsigned m_leftObjectsCount;
     unsigned m_rightObjectsCount;
     bool m_horizontalWritingMode;
-    const RenderBlockFlow& m_renderer;
+    WeakPtr<const RenderBlockFlow> m_renderer;
 };
 
+} // namespace WebCore
+
 #ifndef NDEBUG
+namespace WTF {
+
 // This helper is used by PODIntervalTree for debugging purposes.
-template<> struct ValueToString<FloatingObject*> {
-    static String string(const FloatingObject* floatingObject)
+template<> struct ValueToString<WebCore::FloatingObject*> {
+    static String string(const WebCore::FloatingObject* floatingObject)
     {
         return String::format("%p (%ix%i %ix%i)", floatingObject, floatingObject->frameRect().x().toInt(), floatingObject->frameRect().y().toInt(), floatingObject->frameRect().maxX().toInt(), floatingObject->frameRect().maxY().toInt());
     }
 };
-#endif
 
-} // namespace WebCore
+} // namespace WTF
+#endif

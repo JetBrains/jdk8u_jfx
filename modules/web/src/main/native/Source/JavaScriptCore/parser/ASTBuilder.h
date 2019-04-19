@@ -129,7 +129,7 @@ public:
     static const int  DontBuildStrings = 0;
 
     ExpressionNode* makeBinaryNode(const JSTokenLocation&, int token, std::pair<ExpressionNode*, BinaryOpInfo>, std::pair<ExpressionNode*, BinaryOpInfo>);
-    ExpressionNode* makeFunctionCallNode(const JSTokenLocation&, ExpressionNode* func, ArgumentsNode* args, const JSTextPosition& divotStart, const JSTextPosition& divot, const JSTextPosition& divotEnd);
+    ExpressionNode* makeFunctionCallNode(const JSTokenLocation&, ExpressionNode* func, bool previousBaseWasSuper, ArgumentsNode* args, const JSTextPosition& divotStart, const JSTextPosition& divot, const JSTextPosition& divotEnd, size_t callOrApplyChildDepth);
 
     JSC::SourceElements* createSourceElements() { return new (m_parserArena) JSC::SourceElements(); }
 
@@ -189,7 +189,10 @@ public:
         usesNewTarget();
         return new (m_parserArena) NewTargetNode(location);
     }
+    ExpressionNode* createImportMetaExpr(const JSTokenLocation& location, ExpressionNode* expr) { return new (m_parserArena) ImportMetaNode(location, expr); }
+    bool isMetaProperty(ExpressionNode* node) { return node->isMetaProperty(); }
     bool isNewTarget(ExpressionNode* node) { return node->isNewTarget(); }
+    bool isImportMeta(ExpressionNode* node) { return node->isImportMeta(); }
     ExpressionNode* createResolve(const JSTokenLocation& location, const Identifier& ident, const JSTextPosition& start, const JSTextPosition& end)
     {
         if (m_vm->propertyNames->arguments == ident)
@@ -228,6 +231,12 @@ public:
     {
         incConstants();
         return new (m_parserArena) IntegerNode(location, d);
+    }
+
+    ExpressionNode* createBigInt(const JSTokenLocation& location, const Identifier* bigInt, uint8_t radix)
+    {
+        incConstants();
+        return new (m_parserArena) BigIntNode(location, *bigInt, radix);
     }
 
     ExpressionNode* createString(const JSTokenLocation& location, const Identifier* string)
@@ -271,6 +280,13 @@ public:
     ExpressionNode* createSpreadExpression(const JSTokenLocation& location, ExpressionNode* expression, const JSTextPosition& start, const JSTextPosition& divot, const JSTextPosition& end)
     {
         auto node = new (m_parserArena) SpreadExpressionNode(location, expression);
+        setExceptionLocation(node, start, divot, end);
+        return node;
+    }
+
+    ExpressionNode* createObjectSpreadExpression(const JSTokenLocation& location, ExpressionNode* expression, const JSTextPosition& start, const JSTextPosition& divot, const JSTextPosition& end)
+    {
+        auto node = new (m_parserArena) ObjectSpreadExpressionNode(location, expression);
         setExceptionLocation(node, start, divot, end);
         return node;
     }
@@ -319,7 +335,7 @@ public:
 
     ExpressionNode* createRegExp(const JSTokenLocation& location, const Identifier& pattern, const Identifier& flags, const JSTextPosition& start)
     {
-        if (Yarr::checkSyntax(pattern.string(), flags.string()))
+        if (Yarr::hasError(Yarr::checkSyntax(pattern.string(), flags.string())))
             return 0;
         RegExpNode* node = new (m_parserArena) RegExpNode(location, pattern, flags);
         int size = pattern.length() + 2; // + 2 for the two /'s
@@ -381,10 +397,10 @@ public:
     }
 
     ClassExprNode* createClassExpr(const JSTokenLocation& location, const ParserClassInfo<ASTBuilder>& classInfo, VariableEnvironment& classEnvironment, ExpressionNode* constructor,
-        ExpressionNode* parentClass, PropertyListNode* instanceMethods, PropertyListNode* staticMethods)
+        ExpressionNode* parentClass, PropertyListNode* classElements)
     {
         SourceCode source = m_sourceCode->subExpression(classInfo.startOffset, classInfo.endOffset, classInfo.startLine, classInfo.startColumn);
-        return new (m_parserArena) ClassExprNode(location, *classInfo.className, source, classEnvironment, constructor, parentClass, instanceMethods, staticMethods);
+        return new (m_parserArena) ClassExprNode(location, *classInfo.className, source, classEnvironment, constructor, parentClass, classElements);
     }
 
     ExpressionNode* createFunctionExpr(const JSTokenLocation& location, const ParserFunctionInfo<ASTBuilder>& functionInfo)
@@ -430,6 +446,8 @@ public:
         unsigned parameterCount,
         SourceParseMode mode, bool isArrowFunctionBodyExpression)
     {
+        ASSERT(Options::useAsyncIterator() || !isAsyncGeneratorParseMode(mode));
+
         return new (m_parserArena) FunctionMetadataNode(
             m_parserArena, startLocation, endLocation, startColumn, endColumn,
             functionKeywordStart, functionNameStart, parametersStart,
@@ -446,8 +464,13 @@ public:
         return result;
     }
 
+    ArgumentsNode* createArguments() { return new (m_parserArena) ArgumentsNode(); }
+    ArgumentsNode* createArguments(ArgumentListNode* args) { return new (m_parserArena) ArgumentsNode(args); }
+    ArgumentListNode* createArgumentsList(const JSTokenLocation& location, ExpressionNode* arg) { return new (m_parserArena) ArgumentListNode(location, arg); }
+    ArgumentListNode* createArgumentsList(const JSTokenLocation& location, ArgumentListNode* args, ExpressionNode* arg) { return new (m_parserArena) ArgumentListNode(location, args, arg); }
+
     NEVER_INLINE PropertyNode* createGetterOrSetterProperty(const JSTokenLocation& location, PropertyNode::Type type, bool,
-        const Identifier* name, const ParserFunctionInfo<ASTBuilder>& functionInfo, bool isClassProperty)
+        const Identifier* name, const ParserFunctionInfo<ASTBuilder>& functionInfo, ClassElementTag tag)
     {
         ASSERT(name);
         functionInfo.body->setLoc(functionInfo.startLine, functionInfo.endLine, location.startOffset, location.lineStartOffset);
@@ -455,49 +478,50 @@ public:
         functionInfo.body->setInferredName(*name);
         SourceCode source = m_sourceCode->subExpression(functionInfo.startOffset, functionInfo.endOffset, functionInfo.startLine, functionInfo.parametersStartColumn);
         MethodDefinitionNode* methodDef = new (m_parserArena) MethodDefinitionNode(location, m_vm->propertyNames->nullIdentifier, functionInfo.body, source);
-        return new (m_parserArena) PropertyNode(*name, methodDef, type, PropertyNode::Unknown, SuperBinding::Needed, isClassProperty);
+        return new (m_parserArena) PropertyNode(*name, methodDef, type, PropertyNode::Unknown, SuperBinding::Needed, tag);
     }
 
     NEVER_INLINE PropertyNode* createGetterOrSetterProperty(const JSTokenLocation& location, PropertyNode::Type type, bool,
-        ExpressionNode* name, const ParserFunctionInfo<ASTBuilder>& functionInfo, bool isClassProperty)
+        ExpressionNode* name, const ParserFunctionInfo<ASTBuilder>& functionInfo, ClassElementTag tag)
     {
         ASSERT(name);
         functionInfo.body->setLoc(functionInfo.startLine, functionInfo.endLine, location.startOffset, location.lineStartOffset);
         SourceCode source = m_sourceCode->subExpression(functionInfo.startOffset, functionInfo.endOffset, functionInfo.startLine, functionInfo.parametersStartColumn);
         MethodDefinitionNode* methodDef = new (m_parserArena) MethodDefinitionNode(location, m_vm->propertyNames->nullIdentifier, functionInfo.body, source);
-        return new (m_parserArena) PropertyNode(name, methodDef, type, PropertyNode::Unknown, SuperBinding::Needed, isClassProperty);
+        return new (m_parserArena) PropertyNode(name, methodDef, type, PropertyNode::Unknown, SuperBinding::Needed, tag);
     }
 
     NEVER_INLINE PropertyNode* createGetterOrSetterProperty(VM* vm, ParserArena& parserArena, const JSTokenLocation& location, PropertyNode::Type type, bool,
-        double name, const ParserFunctionInfo<ASTBuilder>& functionInfo, bool isClassProperty)
+        double name, const ParserFunctionInfo<ASTBuilder>& functionInfo, ClassElementTag tag)
     {
         functionInfo.body->setLoc(functionInfo.startLine, functionInfo.endLine, location.startOffset, location.lineStartOffset);
         const Identifier& ident = parserArena.identifierArena().makeNumericIdentifier(vm, name);
         SourceCode source = m_sourceCode->subExpression(functionInfo.startOffset, functionInfo.endOffset, functionInfo.startLine, functionInfo.parametersStartColumn);
         MethodDefinitionNode* methodDef = new (m_parserArena) MethodDefinitionNode(location, vm->propertyNames->nullIdentifier, functionInfo.body, source);
-        return new (m_parserArena) PropertyNode(ident, methodDef, type, PropertyNode::Unknown, SuperBinding::Needed, isClassProperty);
+        return new (m_parserArena) PropertyNode(ident, methodDef, type, PropertyNode::Unknown, SuperBinding::Needed, tag);
     }
 
-    ArgumentsNode* createArguments() { return new (m_parserArena) ArgumentsNode(); }
-    ArgumentsNode* createArguments(ArgumentListNode* args) { return new (m_parserArena) ArgumentsNode(args); }
-    ArgumentListNode* createArgumentsList(const JSTokenLocation& location, ExpressionNode* arg) { return new (m_parserArena) ArgumentListNode(location, arg); }
-    ArgumentListNode* createArgumentsList(const JSTokenLocation& location, ArgumentListNode* args, ExpressionNode* arg) { return new (m_parserArena) ArgumentListNode(location, args, arg); }
-
-    PropertyNode* createProperty(const Identifier* propertyName, ExpressionNode* node, PropertyNode::Type type, PropertyNode::PutType putType, bool, SuperBinding superBinding, bool isClassProperty)
+    PropertyNode* createProperty(const Identifier* propertyName, ExpressionNode* node, PropertyNode::Type type, PropertyNode::PutType putType, bool, SuperBinding superBinding, InferName inferName, ClassElementTag tag)
     {
-        if (node->isBaseFuncExprNode()) {
-            auto metadata = static_cast<BaseFuncExprNode*>(node)->metadata();
-            metadata->setEcmaName(*propertyName);
-            metadata->setInferredName(*propertyName);
-        } else if (node->isClassExprNode())
-            static_cast<ClassExprNode*>(node)->setEcmaName(*propertyName);
-        return new (m_parserArena) PropertyNode(*propertyName, node, type, putType, superBinding, isClassProperty);
+        if (inferName == InferName::Allowed) {
+            if (node->isBaseFuncExprNode()) {
+                auto metadata = static_cast<BaseFuncExprNode*>(node)->metadata();
+                metadata->setEcmaName(*propertyName);
+                metadata->setInferredName(*propertyName);
+            } else if (node->isClassExprNode())
+                static_cast<ClassExprNode*>(node)->setEcmaName(*propertyName);
+        }
+        return new (m_parserArena) PropertyNode(*propertyName, node, type, putType, superBinding, tag);
     }
-    PropertyNode* createProperty(VM* vm, ParserArena& parserArena, double propertyName, ExpressionNode* node, PropertyNode::Type type, PropertyNode::PutType putType, bool, SuperBinding superBinding, bool isClassProperty)
+    PropertyNode* createProperty(ExpressionNode* node, PropertyNode::Type type, PropertyNode::PutType putType, bool, SuperBinding superBinding, ClassElementTag tag)
     {
-        return new (m_parserArena) PropertyNode(parserArena.identifierArena().makeNumericIdentifier(vm, propertyName), node, type, putType, superBinding, isClassProperty);
+        return new (m_parserArena) PropertyNode(node, type, putType, superBinding, tag);
     }
-    PropertyNode* createProperty(ExpressionNode* propertyName, ExpressionNode* node, PropertyNode::Type type, PropertyNode::PutType putType, bool, SuperBinding superBinding, bool isClassProperty) { return new (m_parserArena) PropertyNode(propertyName, node, type, putType, superBinding, isClassProperty); }
+    PropertyNode* createProperty(VM* vm, ParserArena& parserArena, double propertyName, ExpressionNode* node, PropertyNode::Type type, PropertyNode::PutType putType, bool, SuperBinding superBinding, ClassElementTag tag)
+    {
+        return new (m_parserArena) PropertyNode(parserArena.identifierArena().makeNumericIdentifier(vm, propertyName), node, type, putType, superBinding, tag);
+    }
+    PropertyNode* createProperty(ExpressionNode* propertyName, ExpressionNode* node, PropertyNode::Type type, PropertyNode::PutType putType, bool, SuperBinding superBinding, ClassElementTag tag) { return new (m_parserArena) PropertyNode(propertyName, node, type, putType, superBinding, tag); }
     PropertyListNode* createPropertyList(const JSTokenLocation& location, PropertyNode* property) { return new (m_parserArena) PropertyListNode(location, property); }
     PropertyListNode* createPropertyList(const JSTokenLocation& location, PropertyNode* property, PropertyListNode* tail) { return new (m_parserArena) PropertyListNode(location, property, tail); }
 
@@ -587,18 +611,18 @@ public:
         return createForInLoop(location, lexpr, iter, statements, declLocation, eStart, eDivot, eEnd, start, end, lexicalVariables);
     }
 
-    StatementNode* createForOfLoop(const JSTokenLocation& location, ExpressionNode* lhs, ExpressionNode* iter, StatementNode* statements, const JSTokenLocation&, const JSTextPosition& eStart, const JSTextPosition& eDivot, const JSTextPosition& eEnd, int start, int end, VariableEnvironment& lexicalVariables)
+    StatementNode* createForOfLoop(bool isForAwait, const JSTokenLocation& location, ExpressionNode* lhs, ExpressionNode* iter, StatementNode* statements, const JSTokenLocation&, const JSTextPosition& eStart, const JSTextPosition& eDivot, const JSTextPosition& eEnd, int start, int end, VariableEnvironment& lexicalVariables)
     {
-        ForOfNode* result = new (m_parserArena) ForOfNode(location, lhs, iter, statements, lexicalVariables);
+        ForOfNode* result = new (m_parserArena) ForOfNode(isForAwait, location, lhs, iter, statements, lexicalVariables);
         result->setLoc(start, end, location.startOffset, location.lineStartOffset);
         setExceptionLocation(result, eStart, eDivot, eEnd);
         return result;
     }
 
-    StatementNode* createForOfLoop(const JSTokenLocation& location, DestructuringPatternNode* pattern, ExpressionNode* iter, StatementNode* statements, const JSTokenLocation& declLocation, const JSTextPosition& eStart, const JSTextPosition& eDivot, const JSTextPosition& eEnd, int start, int end, VariableEnvironment& lexicalVariables)
+    StatementNode* createForOfLoop(bool isForAwait, const JSTokenLocation& location, DestructuringPatternNode* pattern, ExpressionNode* iter, StatementNode* statements, const JSTokenLocation& declLocation, const JSTextPosition& eStart, const JSTextPosition& eDivot, const JSTextPosition& eEnd, int start, int end, VariableEnvironment& lexicalVariables)
     {
         auto lexpr = new (m_parserArena) DestructuringAssignmentNode(declLocation, pattern, nullptr);
-        return createForOfLoop(location, lexpr, iter, statements, declLocation, eStart, eDivot, eEnd, start, end, lexicalVariables);
+        return createForOfLoop(isForAwait, location, lexpr, iter, statements, declLocation, eStart, eDivot, eEnd, start, end, lexicalVariables);
     }
 
     bool isBindingNode(const DestructuringPattern& pattern)
@@ -841,7 +865,7 @@ public:
     {
         operandStackDepth -= amount;
         ASSERT(operandStackDepth >= 0);
-        m_binaryOperandStack.resize(m_binaryOperandStack.size() - amount);
+        m_binaryOperandStack.shrink(m_binaryOperandStack.size() - amount);
     }
     void appendBinaryOperation(const JSTokenLocation& location, int& operandStackDepth, int&, const BinaryOperand& lhs, const BinaryOperand& rhs)
     {
@@ -942,14 +966,29 @@ public:
 
     void appendObjectPatternEntry(ObjectPattern node, const JSTokenLocation& location, bool wasString, const Identifier& identifier, DestructuringPattern pattern, ExpressionNode* defaultValue)
     {
-        node->appendEntry(location, identifier, wasString, pattern, defaultValue);
+        node->appendEntry(location, identifier, wasString, pattern, defaultValue, ObjectPatternNode::BindingType::Element);
         tryInferNameInPattern(pattern, defaultValue);
     }
 
-    void appendObjectPatternEntry(ObjectPattern node, const JSTokenLocation& location, ExpressionNode* propertyExpression, DestructuringPattern pattern, ExpressionNode* defaultValue)
+    void appendObjectPatternEntry(VM& vm, ObjectPattern node, const JSTokenLocation& location, ExpressionNode* propertyExpression, DestructuringPattern pattern, ExpressionNode* defaultValue)
     {
-        node->appendEntry(location, propertyExpression, pattern, defaultValue);
+        node->appendEntry(vm, location, propertyExpression, pattern, defaultValue, ObjectPatternNode::BindingType::Element);
         tryInferNameInPattern(pattern, defaultValue);
+    }
+
+    void appendObjectPatternRestEntry(VM& vm, ObjectPattern node, const JSTokenLocation& location, DestructuringPattern pattern)
+    {
+        node->appendEntry(vm, location, nullptr, pattern, nullptr, ObjectPatternNode::BindingType::RestElement);
+    }
+
+    void setContainsObjectRestElement(ObjectPattern node, bool containsRestElement)
+    {
+        node->setContainsRestElement(containsRestElement);
+    }
+
+    void setContainsComputedProperty(ObjectPattern node, bool containsComputedProperty)
+    {
+        node->setContainsComputedProperty(containsComputedProperty);
     }
 
     BindingPattern createBindingLocation(const JSTokenLocation&, const Identifier& boundProperty, const JSTextPosition& start, const JSTextPosition& end, AssignmentContext context)
@@ -1033,6 +1072,10 @@ private:
     {
         return new (m_parserArena) DoubleNode(location, d);
     }
+    ExpressionNode* createBigIntWithSign(const JSTokenLocation& location, const Identifier& bigInt, uint8_t radix, bool sign)
+    {
+        return new (m_parserArena) BigIntNode(location, bigInt, radix, sign);
+    }
     ExpressionNode* createNumberFromBinaryOperation(const JSTokenLocation& location, double value, const NumberNode& originalNodeA, const NumberNode& originalNodeB)
     {
         if (originalNodeA.isIntegerNode() && originalNodeB.isIntegerNode())
@@ -1045,17 +1088,30 @@ private:
             return createIntegerLikeNumber(location, value);
         return createDoubleLikeNumber(location, value);
     }
+    ExpressionNode* createBigIntFromUnaryOperation(const JSTokenLocation& location, bool sign, const BigIntNode& originalNode)
+    {
+        return createBigIntWithSign(location, originalNode.identifier(), originalNode.radix(), sign);
+    }
 
     void tryInferNameInPattern(DestructuringPattern pattern, ExpressionNode* defaultValue)
     {
         if (!defaultValue)
             return;
 
-        if (!pattern->isBindingNode())
-            return;
+        if (pattern->isBindingNode()) {
+            const Identifier& ident = static_cast<BindingNode*>(pattern)->boundProperty();
+            tryInferNameInPatternWithIdentifier(ident, defaultValue);
+        } else if (pattern->isAssignmentElementNode()) {
+            const ExpressionNode* assignmentTarget = static_cast<AssignmentElementNode*>(pattern)->assignmentTarget();
+            if (assignmentTarget->isResolveNode()) {
+                const Identifier& ident = static_cast<const ResolveNode*>(assignmentTarget)->identifier();
+                tryInferNameInPatternWithIdentifier(ident, defaultValue);
+            }
+        }
+    }
 
-        const Identifier& ident = static_cast<const BindingNode*>(pattern)->boundProperty();
-
+    void tryInferNameInPatternWithIdentifier(const Identifier& ident, ExpressionNode* defaultValue)
+    {
         if (defaultValue->isBaseFuncExprNode()) {
             auto metadata = static_cast<BaseFuncExprNode*>(defaultValue)->metadata();
             metadata->setEcmaName(ident);
@@ -1106,6 +1162,11 @@ ExpressionNode* ASTBuilder::makeNegateNode(const JSTokenLocation& location, Expr
     if (n->isNumber()) {
         const NumberNode& numberNode = static_cast<const NumberNode&>(*n);
         return createNumberFromUnaryOperation(location, -numberNode.value(), numberNode);
+    }
+
+    if (n->isBigInt()) {
+        const BigIntNode& bigIntNode = static_cast<const BigIntNode&>(*n);
+        return createBigIntFromUnaryOperation(location, !bigIntNode.sign(), bigIntNode);
     }
 
     return new (m_parserArena) NegateNode(location, n);
@@ -1278,7 +1339,7 @@ ExpressionNode* ASTBuilder::makeBitXOrNode(const JSTokenLocation& location, Expr
     return new (m_parserArena) BitXOrNode(location, expr1, expr2, rightHasAssignments);
 }
 
-ExpressionNode* ASTBuilder::makeFunctionCallNode(const JSTokenLocation& location, ExpressionNode* func, ArgumentsNode* args, const JSTextPosition& divotStart, const JSTextPosition& divot, const JSTextPosition& divotEnd)
+ExpressionNode* ASTBuilder::makeFunctionCallNode(const JSTokenLocation& location, ExpressionNode* func, bool previousBaseWasSuper, ArgumentsNode* args, const JSTextPosition& divotStart, const JSTextPosition& divot, const JSTextPosition& divotEnd, size_t callOrApplyChildDepth)
 {
     ASSERT(divot.offset >= divot.lineStartOffset);
     if (func->isSuperNode())
@@ -1309,10 +1370,10 @@ ExpressionNode* ASTBuilder::makeFunctionCallNode(const JSTokenLocation& location
     ASSERT(func->isDotAccessorNode());
     DotAccessorNode* dot = static_cast<DotAccessorNode*>(func);
     FunctionCallDotNode* node;
-    if (dot->identifier() == m_vm->propertyNames->builtinNames().callPublicName() || dot->identifier() == m_vm->propertyNames->builtinNames().callPrivateName())
-        node = new (m_parserArena) CallFunctionCallDotNode(location, dot->base(), dot->identifier(), args, divot, divotStart, divotEnd);
-    else if (dot->identifier() == m_vm->propertyNames->builtinNames().applyPublicName() || dot->identifier() == m_vm->propertyNames->builtinNames().applyPrivateName())
-        node = new (m_parserArena) ApplyFunctionCallDotNode(location, dot->base(), dot->identifier(), args, divot, divotStart, divotEnd);
+    if (!previousBaseWasSuper && (dot->identifier() == m_vm->propertyNames->builtinNames().callPublicName() || dot->identifier() == m_vm->propertyNames->builtinNames().callPrivateName()))
+        node = new (m_parserArena) CallFunctionCallDotNode(location, dot->base(), dot->identifier(), args, divot, divotStart, divotEnd, callOrApplyChildDepth);
+    else if (!previousBaseWasSuper && (dot->identifier() == m_vm->propertyNames->builtinNames().applyPublicName() || dot->identifier() == m_vm->propertyNames->builtinNames().applyPrivateName()))
+        node = new (m_parserArena) ApplyFunctionCallDotNode(location, dot->base(), dot->identifier(), args, divot, divotStart, divotEnd, callOrApplyChildDepth);
     else
         node = new (m_parserArena) FunctionCallDotNode(location, dot->base(), dot->identifier(), args, divot, divotStart, divotEnd);
     node->setSubexpressionInfo(dot->divot(), dot->divotEnd().offset);

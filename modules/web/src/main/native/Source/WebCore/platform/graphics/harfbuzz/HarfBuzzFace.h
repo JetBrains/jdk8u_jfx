@@ -33,39 +33,58 @@
 
 #include <hb.h>
 
+#include <memory>
+#include <wtf/FastMalloc.h>
 #include <wtf/HashMap.h>
-#include <wtf/PassRefPtr.h>
+#include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
 class FontPlatformData;
 
-class HarfBuzzFace : public RefCounted<HarfBuzzFace> {
+class HarfBuzzFace {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     static const hb_tag_t vertTag;
     static const hb_tag_t vrt2Tag;
     static const hb_tag_t kernTag;
 
-    static PassRefPtr<HarfBuzzFace> create(FontPlatformData* platformData, uint64_t uniqueID)
-    {
-        return adoptRef(new HarfBuzzFace(platformData, uniqueID));
-    }
+    HarfBuzzFace(FontPlatformData&, uint64_t);
     ~HarfBuzzFace();
 
     hb_font_t* createFont();
 
     void setScriptForVerticalGlyphSubstitution(hb_buffer_t*);
 
+    using GlyphCache = HashMap<uint32_t, uint32_t, DefaultHash<uint32_t>::Hash, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>;
 private:
-    HarfBuzzFace(FontPlatformData*, uint64_t);
+    class CacheEntry : public RefCounted<CacheEntry> {
+    public:
+        static Ref<CacheEntry> create(hb_face_t* face)
+        {
+            return adoptRef(*new CacheEntry(face));
+        }
+        ~CacheEntry();
+
+        hb_face_t* face() { return m_face; }
+        GlyphCache& glyphCache() { return m_glyphCache; }
+
+    private:
+        CacheEntry(hb_face_t*);
+
+        hb_face_t* m_face;
+        GlyphCache m_glyphCache;
+    };
+
+    using Cache = HashMap<uint64_t, RefPtr<CacheEntry>, WTF::IntHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;
+    static Cache& cache();
 
     hb_face_t* createFace();
 
-    FontPlatformData* m_platformData;
+    FontPlatformData& m_platformData;
     uint64_t m_uniqueID;
-    hb_face_t* m_face;
-    WTF::HashMap<uint32_t, uint16_t>* m_glyphCacheForFaceCacheEntry;
+    RefPtr<CacheEntry> m_cacheEntry;
 
     hb_script_t m_scriptForVerticalText;
 };

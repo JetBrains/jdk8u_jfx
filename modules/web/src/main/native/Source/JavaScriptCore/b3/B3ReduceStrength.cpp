@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,12 +28,13 @@
 
 #if ENABLE(B3_JIT)
 
+#include "B3AtomicValue.h"
 #include "B3BasicBlockInlines.h"
 #include "B3BlockInsertionSet.h"
 #include "B3ComputeDivisionMagic.h"
 #include "B3Dominators.h"
 #include "B3InsertionSetInlines.h"
-#include "B3MemoryValue.h"
+#include "B3MemoryValueInlines.h"
 #include "B3PhaseScope.h"
 #include "B3PhiChildren.h"
 #include "B3ProcedureInlines.h"
@@ -87,7 +88,9 @@ namespace {
 // constants then the canonical form involves the lower-indexed value first. Given Add(x, y), it's
 // canonical if x->index() <= y->index().
 
-bool verbose = false;
+namespace B3ReduceStrengthInternal {
+static const bool verbose = false;
+}
 
 // FIXME: This IntRange stuff should be refactored into a general constant propagator. It's weird
 // that it's just sitting here in this file.
@@ -413,7 +416,7 @@ public:
 
             if (first)
                 first = false;
-            else if (verbose) {
+            else if (B3ReduceStrengthInternal::verbose) {
                 dataLog("B3 after iteration #", index - 1, " of reduceStrength:\n");
                 dataLog(m_proc);
             }
@@ -441,38 +444,42 @@ public:
 
             simplifySSA();
 
-            m_proc.resetValueOwners();
-            m_dominators = &m_proc.dominators(); // Recompute if necessary.
-            m_pureCSE.clear();
+            if (m_proc.optLevel() >= 2) {
+                m_proc.resetValueOwners();
+                m_dominators = &m_proc.dominators(); // Recompute if necessary.
+                m_pureCSE.clear();
+            }
 
             for (BasicBlock* block : m_proc.blocksInPreOrder()) {
                 m_block = block;
 
                 for (m_index = 0; m_index < block->size(); ++m_index) {
-                    if (verbose) {
+                    if (B3ReduceStrengthInternal::verbose) {
                         dataLog(
                             "Looking at ", *block, " #", m_index, ": ",
                             deepDump(m_proc, block->at(m_index)), "\n");
                     }
                     m_value = m_block->at(m_index);
                     m_value->performSubstitution();
-
                     reduceValueStrength();
-                    replaceIfRedundant();
+                    if (m_proc.optLevel() >= 2)
+                        replaceIfRedundant();
                 }
                 m_insertionSet.execute(m_block);
             }
 
             m_changedCFG |= m_blockInsertionSet.execute();
-            if (m_changedCFG) {
-                m_proc.resetReachability();
-                m_proc.invalidateCFG();
-                m_dominators = nullptr; // Dominators are not valid anymore, and we don't need them yet.
-                m_changed = true;
-            }
+            handleChangedCFGIfNecessary();
 
             result |= m_changed;
-        } while (m_changed);
+        } while (m_changed && m_proc.optLevel() >= 2);
+
+        if (m_proc.optLevel() < 2) {
+            m_changedCFG = false;
+            simplifyCFG();
+            handleChangedCFGIfNecessary();
+        }
+
         return result;
     }
 
@@ -480,6 +487,15 @@ private:
     void reduceValueStrength()
     {
         switch (m_value->opcode()) {
+        case Opaque:
+            // Turn this: Opaque(Opaque(value))
+            // Into this: Opaque(value)
+            if (m_value->child(0)->opcode() == Opaque) {
+                replaceWithIdentity(m_value->child(0));
+                break;
+            }
+            break;
+
         case Add:
             handleCommutativity();
 
@@ -726,6 +742,9 @@ private:
                     if (m_value->type() != Int32)
                         break;
 
+                    if (m_proc.optLevel() < 2)
+                        break;
+
                     int32_t divisor = m_value->child(1)->asInt32();
                     DivisionMagic<int32_t> magic = computeDivisionMagic(divisor);
 
@@ -820,6 +839,9 @@ private:
                     break;
 
                 default:
+                    if (m_proc.optLevel() < 2)
+                        break;
+
                     // Turn this: Mod(N, D)
                     // Into this: Sub(N, Mul(Div(N, D), D))
                     //
@@ -1295,6 +1317,16 @@ private:
                     break;
                 }
             }
+
+            if (!m_proc.hasQuirks()) {
+                // Turn this: SExt8(AtomicXchg___)
+                // Into this: AtomicXchg___
+                if (isAtomicXchg(m_value->child(0)->opcode())
+                    && m_value->child(0)->as<AtomicValue>()->accessWidth() == Width8) {
+                    replaceWithIdentity(m_value->child(0));
+                    break;
+                }
+            }
             break;
 
         case SExt16:
@@ -1340,6 +1372,16 @@ private:
                             BitAnd, m_value->origin(), input,
                             m_insertionSet.insert<Const32Value>(
                                 m_index, m_value->origin(), mask & 0x7fff)));
+                    break;
+                }
+            }
+
+            if (!m_proc.hasQuirks()) {
+                // Turn this: SExt16(AtomicXchg___)
+                // Into this: AtomicXchg___
+                if (isAtomicXchg(m_value->child(0)->opcode())
+                    && m_value->child(0)->as<AtomicValue>()->accessWidth() == Width16) {
+                    replaceWithIdentity(m_value->child(0));
                     break;
                 }
             }
@@ -1524,7 +1566,7 @@ private:
                 intptr_t offset = address->child(1)->asIntPtr();
                 if (!sumOverflows<intptr_t>(offset, memory->offset())) {
                     offset += memory->offset();
-                    int32_t smallOffset = static_cast<int32_t>(offset);
+                    Value::OffsetType smallOffset = static_cast<Value::OffsetType>(offset);
                     if (smallOffset == offset) {
                         address = address->child(0);
                         memory->lastChild() = address;
@@ -1557,7 +1599,7 @@ private:
         case CCall: {
             // Turn this: Call(fmod, constant1, constant2)
             // Into this: fcall-constant(constant1, constant2)
-            double(*fmodDouble)(double, double) = fmod;
+            auto* fmodDouble = tagCFunctionPtr<double (*)(double, double)>(fmod, B3CCallPtrTag);
             if (m_value->type() == Double
                 && m_value->numChildren() == 3
                 && m_value->child(0)->isIntPtr(reinterpret_cast<intptr_t>(fmodDouble))
@@ -1624,63 +1666,55 @@ private:
             break;
 
         case LessThan:
-            // FIXME: We could do a better job of canonicalizing integer comparisons.
-            // https://bugs.webkit.org/show_bug.cgi?id=150958
-
-            replaceWithNewValue(
-                m_proc.addBoolConstant(
-                    m_value->origin(),
-                    m_value->child(0)->lessThanConstant(m_value->child(1))));
-            break;
-
         case GreaterThan:
-            replaceWithNewValue(
-                m_proc.addBoolConstant(
-                    m_value->origin(),
-                    m_value->child(0)->greaterThanConstant(m_value->child(1))));
-            break;
-
         case LessEqual:
-            replaceWithNewValue(
-                m_proc.addBoolConstant(
-                    m_value->origin(),
-                    m_value->child(0)->lessEqualConstant(m_value->child(1))));
-            break;
-
         case GreaterEqual:
-            replaceWithNewValue(
-                m_proc.addBoolConstant(
-                    m_value->origin(),
-                    m_value->child(0)->greaterEqualConstant(m_value->child(1))));
-            break;
-
         case Above:
-            replaceWithNewValue(
-                m_proc.addBoolConstant(
-                    m_value->origin(),
-                    m_value->child(0)->aboveConstant(m_value->child(1))));
-            break;
-
         case Below:
-            replaceWithNewValue(
-                m_proc.addBoolConstant(
-                    m_value->origin(),
-                    m_value->child(0)->belowConstant(m_value->child(1))));
-            break;
-
         case AboveEqual:
-            replaceWithNewValue(
-                m_proc.addBoolConstant(
-                    m_value->origin(),
-                    m_value->child(0)->aboveEqualConstant(m_value->child(1))));
-            break;
+        case BelowEqual: {
+            CanonicalizedComparison comparison = canonicalizeComparison(m_value);
+            TriState result = MixedTriState;
+            switch (comparison.opcode) {
+            case LessThan:
+                result = comparison.operands[1]->greaterThanConstant(comparison.operands[0]);
+                break;
+            case GreaterThan:
+                result = comparison.operands[1]->lessThanConstant(comparison.operands[0]);
+                break;
+            case LessEqual:
+                result = comparison.operands[1]->greaterEqualConstant(comparison.operands[0]);
+                break;
+            case GreaterEqual:
+                result = comparison.operands[1]->lessEqualConstant(comparison.operands[0]);
+                break;
+            case Above:
+                result = comparison.operands[1]->belowConstant(comparison.operands[0]);
+                break;
+            case Below:
+                result = comparison.operands[1]->aboveConstant(comparison.operands[0]);
+                break;
+            case AboveEqual:
+                result = comparison.operands[1]->belowEqualConstant(comparison.operands[0]);
+                break;
+            case BelowEqual:
+                result = comparison.operands[1]->aboveEqualConstant(comparison.operands[0]);
+                break;
+            default:
+                RELEASE_ASSERT_NOT_REACHED();
+                break;
+            }
 
-        case BelowEqual:
-            replaceWithNewValue(
-                m_proc.addBoolConstant(
-                    m_value->origin(),
-                    m_value->child(0)->belowEqualConstant(m_value->child(1))));
+            if (auto* constant = m_proc.addBoolConstant(m_value->origin(), result)) {
+                replaceWithNewValue(constant);
+                break;
+            }
+            if (comparison.opcode != m_value->opcode()) {
+                replaceWithNew<Value>(comparison.opcode, m_value->origin(), comparison.operands[0], comparison.operands[1]);
+                break;
+            }
             break;
+        }
 
         case EqualOrUnordered:
             handleCommutativity();
@@ -1821,6 +1855,9 @@ private:
                 m_changed = true;
             }
 
+            if (m_proc.optLevel() < 2)
+                break;
+
             // If we are checking some bounded-size SSA expression that leads to a Select that
             // has a constant as one of its results, then turn the Select into a Branch and split
             // the code between the Check and the Branch. For example, this:
@@ -1926,17 +1963,19 @@ private:
                 break;
             }
 
-            // If a check for the same property dominates us, we can kill the branch. This sort
-            // of makes sense here because it's cheap, but hacks like this show that we're going
-            // to need SCCP.
-            Value* check = m_pureCSE.findMatch(
-                ValueKey(Check, Void, m_value->child(0)), m_block, *m_dominators);
-            if (check) {
-                // The Check would have side-exited if child(0) was non-zero. So, it must be
-                // zero here.
-                m_block->taken().block()->removePredecessor(m_block);
-                m_value->replaceWithJump(m_block, m_block->notTaken());
-                m_changedCFG = true;
+            if (m_proc.optLevel() >= 2) {
+                // If a check for the same property dominates us, we can kill the branch. This sort
+                // of makes sense here because it's cheap, but hacks like this show that we're going
+                // to need SCCP.
+                Value* check = m_pureCSE.findMatch(
+                    ValueKey(Check, Void, m_value->child(0)), m_block, *m_dominators);
+                if (check) {
+                    // The Check would have side-exited if child(0) was non-zero. So, it must be
+                    // zero here.
+                    m_block->taken().block()->removePredecessor(m_block);
+                    m_value->replaceWithJump(m_block, m_block->notTaken());
+                    m_changedCFG = true;
+                }
             }
             break;
         }
@@ -1990,7 +2029,7 @@ private:
     // early.
     void specializeSelect(Value* source)
     {
-        if (verbose)
+        if (B3ReduceStrengthInternal::verbose)
             dataLog("Specializing select: ", deepDump(m_proc, source), "\n");
 
         // This mutates startIndex to account for the fact that m_block got the front of it
@@ -2087,6 +2126,31 @@ private:
         predecessor->updatePredecessorsAfter();
     }
 
+    static bool shouldSwapBinaryOperands(Value* value)
+    {
+        // Note that we have commutative operations that take more than two children. Those operations may
+        // commute their first two children while leaving the rest unaffected.
+        ASSERT(value->numChildren() >= 2);
+
+        // Leave it alone if the right child is a constant.
+        if (value->child(1)->isConstant()
+            || value->child(0)->opcode() == AtomicStrongCAS)
+            return false;
+
+        if (value->child(0)->isConstant())
+            return true;
+
+        if (value->child(1)->opcode() == AtomicStrongCAS)
+            return true;
+
+        // Sort the operands. This is an important canonicalization. We use the index instead of
+        // the address to make this at least slightly deterministic.
+        if (value->child(0)->index() > value->child(1)->index())
+            return true;
+
+        return false;
+    }
+
     // Turn this: Add(constant, value)
     // Into this: Add(value, constant)
     //
@@ -2096,27 +2160,43 @@ private:
     // If we decide that value2 coming first is the canonical ordering.
     void handleCommutativity()
     {
-        // Note that we have commutative operations that take more than two children. Those operations may
-        // commute their first two children while leaving the rest unaffected.
-        ASSERT(m_value->numChildren() >= 2);
-
-        // Leave it alone if the right child is a constant.
-        if (m_value->child(1)->isConstant())
-            return;
-
-        if (m_value->child(0)->isConstant()) {
+        if (shouldSwapBinaryOperands(m_value)) {
             std::swap(m_value->child(0), m_value->child(1));
             m_changed = true;
-            return;
         }
+    }
 
-        // Sort the operands. This is an important canonicalization. We use the index instead of
-        // the address to make this at least slightly deterministic.
-        if (m_value->child(0)->index() > m_value->child(1)->index()) {
-            std::swap(m_value->child(0), m_value->child(1));
-            m_changed = true;
-            return;
-        }
+    struct CanonicalizedComparison {
+        Opcode opcode;
+        Value* operands[2];
+    };
+    static CanonicalizedComparison canonicalizeComparison(Value* value)
+    {
+        auto flip = [] (Opcode opcode) {
+            switch (opcode) {
+            case LessThan:
+                return GreaterThan;
+            case GreaterThan:
+                return LessThan;
+            case LessEqual:
+                return GreaterEqual;
+            case GreaterEqual:
+                return LessEqual;
+            case Above:
+                return Below;
+            case Below:
+                return Above;
+            case AboveEqual:
+                return BelowEqual;
+            case BelowEqual:
+                return AboveEqual;
+            default:
+                return opcode;
+            }
+        };
+        if (shouldSwapBinaryOperands(value))
+            return { flip(value->opcode()), { value->child(1), value->child(0) } };
+        return { value->opcode(), { value->child(0), value->child(1) } };
     }
 
     // FIXME: This should really be a forward analysis. Instead, we uses a bounded-search backwards
@@ -2228,7 +2308,7 @@ private:
 
     void simplifyCFG()
     {
-        if (verbose) {
+        if (B3ReduceStrengthInternal::verbose) {
             dataLog("Before simplifyCFG:\n");
             dataLog(m_proc);
         }
@@ -2253,7 +2333,7 @@ private:
         // iterations needed to kill a lot of code.
 
         for (BasicBlock* block : m_proc) {
-            if (verbose)
+            if (B3ReduceStrengthInternal::verbose)
                 dataLog("Considering block ", *block, ":\n");
 
             checkPredecessorValidity();
@@ -2269,7 +2349,7 @@ private:
                     && successor->last()->opcode() == Jump) {
                     BasicBlock* newSuccessor = successor->successorBlock(0);
                     if (newSuccessor != successor) {
-                        if (verbose) {
+                        if (B3ReduceStrengthInternal::verbose) {
                             dataLog(
                                 "Replacing ", pointerDump(block), "->", pointerDump(successor),
                                 " with ", pointerDump(block), "->", pointerDump(newSuccessor),
@@ -2300,7 +2380,7 @@ private:
                         }
                     }
                     if (allSame) {
-                        if (verbose) {
+                        if (B3ReduceStrengthInternal::verbose) {
                             dataLog(
                                 "Changing ", pointerDump(block), "'s terminal to a Jump.\n");
                         }
@@ -2331,7 +2411,7 @@ private:
 
                     // Make sure that the successor has nothing left in it. Make sure that the block
                     // has a terminal so that nobody chokes when they look at it.
-                    successor->values().resize(0);
+                    successor->values().shrink(0);
                     successor->appendNew<Value>(m_proc, Oops, jumpOrigin);
                     successor->clearSuccessors();
 
@@ -2339,7 +2419,7 @@ private:
                     for (BasicBlock* newSuccessor : block->successorBlocks())
                         newSuccessor->replacePredecessor(successor, block);
 
-                    if (verbose) {
+                    if (B3ReduceStrengthInternal::verbose) {
                         dataLog(
                             "Merged ", pointerDump(block), "->", pointerDump(successor), "\n");
                     }
@@ -2349,9 +2429,19 @@ private:
             }
         }
 
-        if (m_changedCFG && verbose) {
+        if (m_changedCFG && B3ReduceStrengthInternal::verbose) {
             dataLog("B3 after simplifyCFG:\n");
             dataLog(m_proc);
+        }
+    }
+
+    void handleChangedCFGIfNecessary()
+    {
+        if (m_changedCFG) {
+            m_proc.resetReachability();
+            m_proc.invalidateCFG();
+            m_dominators = nullptr; // Dominators are not valid anymore, and we don't need them yet.
+            m_changed = true;
         }
     }
 
@@ -2368,7 +2458,7 @@ private:
 
     void killDeadCode()
     {
-        GraphNodeWorklist<Value*, IndexSet<Value>> worklist;
+        GraphNodeWorklist<Value*, IndexSet<Value*>> worklist;
         Vector<UpsilonValue*, 64> upsilons;
         for (BasicBlock* block : m_proc) {
             for (Value* value : *block) {
@@ -2405,7 +2495,7 @@ private:
                 break;
         }
 
-        IndexSet<Variable> liveVariables;
+        IndexSet<Variable*> liveVariables;
 
         for (BasicBlock* block : m_proc) {
             size_t sourceIndex = 0;

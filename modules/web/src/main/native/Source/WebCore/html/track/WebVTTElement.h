@@ -45,6 +45,7 @@ enum WebVTTNodeType {
 };
 
 class WebVTTElement final : public Element {
+    WTF_MAKE_ISO_ALLOCATED(WebVTTElement);
 public:
     static Ref<WebVTTElement> create(const WebVTTNodeType, Document&);
     Ref<HTMLElement> createEquivalentHTMLElement(Document&);
@@ -62,13 +63,13 @@ public:
 
     static const QualifiedName& voiceAttributeName()
     {
-        static NeverDestroyed<QualifiedName> voiceAttr(nullAtom, "voice", nullAtom);
+        static NeverDestroyed<QualifiedName> voiceAttr(nullAtom(), "voice", nullAtom());
         return voiceAttr;
     }
 
     static const QualifiedName& langAttributeName()
     {
-        static NeverDestroyed<QualifiedName> voiceAttr(nullAtom, "lang", nullAtom);
+        static NeverDestroyed<QualifiedName> voiceAttr(nullAtom(), "lang", nullAtom());
         return voiceAttr;
     }
 

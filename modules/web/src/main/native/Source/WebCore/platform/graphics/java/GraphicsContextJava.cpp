@@ -1,5 +1,26 @@
 /*
- * Copyright (c) 2011, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2018, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 #include "config.h"
@@ -44,12 +65,24 @@ namespace WebCore {
 
 static void setGradient(Gradient &gradient, PlatformGraphicsContext* context, jint id)
 {
-    Vector<Gradient::ColorStop, 2> stops = gradient.getStops(); // TODO-java: recheck;
+    const Vector<Gradient::ColorStop, 2> stops = gradient.stops();
     int nStops = stops.size();
 
     AffineTransform gt = gradient.gradientSpaceTransform();
-    FloatPoint p0(gt.mapPoint(gradient.p0()));
-    FloatPoint p1(gt.mapPoint(gradient.p1()));
+    FloatPoint p0, p1;
+    float startRadius, endRadius;
+    WTF::switchOn(gradient.data(),
+            [&] (const Gradient::LinearData& data) -> void {
+                p0 = data.point0;
+                p1 = data.point1;
+            },
+            [&] (const Gradient::RadialData& data) -> void {
+                p0 = data.point0;
+                p1 = data.point1;
+                startRadius = data.startRadius;
+                endRadius = data.endRadius;
+            }
+    );
 
     context->rq().freeSpace(4 * 11 + 8 * nStops)
     << id
@@ -57,28 +90,22 @@ static void setGradient(Gradient &gradient, PlatformGraphicsContext* context, ji
     << (jfloat)p0.y()
     << (jfloat)p1.x()
     << (jfloat)p1.y()
-    << (jint)gradient.isRadial();
+    << (jint)(gradient.type() == Gradient::Type::Radial);
 
-    if (gradient.isRadial()) {
+    if (gradient.type() == Gradient::Type::Radial) {
         context->rq()
-        << (jfloat)(gt.xScale()*gradient.startRadius())
-        << (jfloat)(gt.xScale()*gradient.endRadius());
+        << (jfloat)(gt.xScale() * startRadius)
+        << (jfloat)(gt.xScale() * endRadius);
     }
     context->rq()
     << (jint)0 //is not proportional
     << (jint)gradient.spreadMethod()
     << (jint)nStops;
 
-    for (int i = 0; i < nStops; i++) {
-        Gradient::ColorStop cs = stops[i];
-        int rgba =
-            ((int)(cs.alpha * 255 + 0.5)) << 24 |
-            ((int)(cs.red   * 255 + 0.5)) << 16 |
-            ((int)(cs.green * 255 + 0.5)) << 8 |
-            ((int)(cs.blue  * 255 + 0.5));
-
+    for (const auto& cs : stops) {
+        int rgba = (int)cs.color.rgb();
         context->rq()
-        << (jint)rgba << (jfloat)cs.stop;
+        << (jint)rgba << (jfloat)cs.offset;
     }
 }
 
@@ -180,17 +207,17 @@ void GraphicsContext::fillRect(const FloatRect& rect)
     if (paintingDisabled())
         return;
 
-    if (m_state.fillPattern && m_state.fillPattern->tileImage()) {
-        Image *img = m_state.fillPattern->tileImage();
+    if (m_state.fillPattern) {
+        Image& img = m_state.fillPattern->tileImage();
         FloatRect destRect(
             rect.x(),
             rect.y(),
-            m_state.fillPattern->repeatX() ? rect.width() : img->width(),
-            m_state.fillPattern->repeatY() ? rect.height() : img->height());
-        img->drawPattern(
+            m_state.fillPattern->repeatX() ? rect.width() : img.width(),
+            m_state.fillPattern->repeatY() ? rect.height() : img.height());
+        img.drawPattern(
             *this,
             destRect,
-            FloatRect(0., 0., img->width(), img->height()),
+            FloatRect(0., 0., img.width(), img.height()),
             m_state.fillPattern->getPatternSpaceTransform(),
             FloatPoint(),
             FloatSize(),
@@ -229,7 +256,11 @@ void GraphicsContext::clipToImageBuffer(ImageBuffer&, const FloatRect&)
 IntRect GraphicsContext::clipBounds() const
 {
     // Transformation has inverse effect on clip bounds.
-    return enclosingIntRect(m_state.transform.inverse()->mapRect(m_state.clipBounds));
+    return enclosingIntRect(m_state
+                                .transform
+                                .inverse()
+                                .value_or(AffineTransform())
+                                .mapRect(m_state.clipBounds));
 }
 
 void GraphicsContext::drawFocusRing(const Path&, float, float, const Color&)
@@ -392,13 +423,13 @@ void GraphicsContext::drawLineForDocumentMarker(const FloatPoint& origin, float 
 {
     savePlatformState(); //fake stroke
     switch (style) { // TODO-java: DocumentMarkerAutocorrectionReplacementLineStyle not handled in switch
-    case DocumentMarkerSpellingLineStyle:
+        case DocumentMarkerLineStyle::Spelling:
         {
             static Color red(255, 0, 0);
             setStrokeColor(red);
         }
         break;
-    case DocumentMarkerGrammarLineStyle:
+        case DocumentMarkerLineStyle::Grammar:
         {
             static Color green(0, 255, 0);
             setStrokeColor(green);
@@ -441,13 +472,6 @@ void GraphicsContext::setPlatformFillColor(const Color& col)
     platformContext()->rq().freeSpace(8)
     << (jint)com_sun_webkit_graphics_GraphicsDecoder_SETFILLCOLOR
     << (jint)col.rgb();
-}
-
-
-
-const Vector<Gradient::ColorStop, 2>& Gradient::getStops() const
-{
-    return m_stops;
 }
 
 void GraphicsContext::setPlatformTextDrawingMode(TextDrawingModeFlags mode)
@@ -530,7 +554,7 @@ void GraphicsContext::concatCTM(const AffineTransform& at)
 //    path.addEllipse(rect);
 //    rect.inflate(-thickness);
 //    path.addEllipse(rect);
-//    clipPath(path, RULE_EVENODD);
+//    clipPath(path, WindRule::EvenOdd);
 //}
 
 void GraphicsContext::setPlatformShadow(const FloatSize& s, float blur, const Color& color)
@@ -707,7 +731,7 @@ static void setClipPath(
     gc.platformContext()->rq().freeSpace(16)
     << jint(com_sun_webkit_graphics_GraphicsDecoder_CLIP_PATH)
     << copyPath(path.platformPath())
-    << jint(wrule == RULE_EVENODD
+    << jint(wrule == WindRule::EvenOdd
        ? com_sun_webkit_graphics_WCPath_RULE_EVENODD
        : com_sun_webkit_graphics_WCPath_RULE_NONZERO)
     << jint(isOut);
@@ -725,7 +749,7 @@ void GraphicsContext::clipPath(const Path &path, WindRule wrule)
 
 void GraphicsContext::clipOut(const Path& path)
 {
-    setClipPath(*this, m_state, path, RULE_EVENODD, true);
+    setClipPath(*this, m_state, path, WindRule::EvenOdd, true);
 }
 
 void GraphicsContext::clipOut(const FloatRect& rect)
@@ -734,22 +758,46 @@ void GraphicsContext::clipOut(const FloatRect& rect)
     path.addRoundedRect(rect, FloatSize());
     clipOut(path);
 }
+
 void GraphicsContext::drawPattern(Image& image, const FloatRect& destRect, const FloatRect& srcRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, CompositeOperator op,  BlendMode blendMode)
 {
     if (paintingDisabled())
         return;
 
-    if (isRecording()) {
-        m_displayListRecorder->drawPattern(image, destRect, srcRect, patternTransform, phase, spacing, op, blendMode);
+    if (m_impl) {
+        m_impl->drawPattern(image, destRect, srcRect, patternTransform, phase, spacing, op, blendMode);
         return;
     }
 
-    auto surface = image.nativeImageForCurrentFrame();
-    if (!surface) // If it's too early we won't have an image yet.
-        return;
+    JNIEnv* env = WebCore_GetJavaEnv();
 
-    image.drawPattern(*this, destRect, srcRect, patternTransform, phase, spacing,
-                       op, blendMode);
+    if (srcRect.isEmpty()) {
+        return;
+    }
+
+    NativeImagePtr currFrame = image.nativeImageForCurrentFrame();
+    if (!currFrame) {
+        return;
+    }
+
+    TransformationMatrix tm = patternTransform.toTransformationMatrix();
+
+    static jmethodID mid = env->GetMethodID(PG_GetGraphicsManagerClass(env),
+                "createTransform",
+                "(DDDDDD)Lcom/sun/webkit/graphics/WCTransform;");
+    ASSERT(mid);
+    JLObject transform(env->CallObjectMethod(PL_GetGraphicsManager(env), mid,
+                tm.a(), tm.b(), tm.c(), tm.d(), tm.e(), tm.f()));
+    ASSERT(transform);
+    CheckAndClearException(env);
+
+    platformContext()->rq().freeSpace(13 * 4)
+        << (jint)com_sun_webkit_graphics_GraphicsDecoder_DRAWPATTERN
+        << currFrame
+        << srcRect.x() << srcRect.y() << srcRect.width() << srcRect.height()
+        << RQRef::create(transform)
+        << phase.x() << phase.y()
+        << destRect.x() << destRect.y() << destRect.width() << destRect.height();
 }
 
 void GraphicsContext::fillPath(const Path& path)
@@ -757,21 +805,21 @@ void GraphicsContext::fillPath(const Path& path)
     if (paintingDisabled())
         return;
 
-    if (m_state.fillPattern && m_state.fillPattern->tileImage()) {
+    if (m_state.fillPattern) {
         savePlatformState(); //fake clip isolation
         clipPath(path, m_state.fillRule);
         FloatRect rect(path.boundingRect());
 
-        Image *img = m_state.fillPattern->tileImage();
+        Image& img = m_state.fillPattern->tileImage();
         FloatRect destRect(
             rect.x(),
             rect.y(),
-            m_state.fillPattern->repeatX() ? rect.width() : img->width(),
-            m_state.fillPattern->repeatY() ? rect.height() : img->height());
-        img->drawPattern(
+            m_state.fillPattern->repeatX() ? rect.width() : img.width(),
+            m_state.fillPattern->repeatY() ? rect.height() : img.height());
+        img.drawPattern(
             *this,
             destRect,
-            FloatRect(0., 0., img->width(), img->height()),
+            FloatRect(0., 0., img.width(), img.height()),
             m_state.fillPattern->getPatternSpaceTransform(),
             FloatPoint(),
             FloatSize(),
@@ -848,7 +896,7 @@ void GraphicsContext::fillRectWithRoundedHole(const FloatRect& frect, const Floa
     WindRule oldFillRule = fillRule();
     Color oldFillColor = fillColor();
 
-    setFillRule(RULE_EVENODD);
+    setFillRule(WindRule::EvenOdd);
     setFillColor(color);
 
     fillPath(path);
@@ -856,24 +904,6 @@ void GraphicsContext::fillRectWithRoundedHole(const FloatRect& frect, const Floa
     setFillRule(oldFillRule);
     setFillColor(oldFillColor);
 }
-
-#if ENABLE(3D_RENDERING) && USE(TEXTURE_MAPPER)
-TransformationMatrix GraphicsContext::get3DTransform() const
-{
-    // FIXME: Can we approximate the transformation better than this?
-    return getCTM().toTransformationMatrix();
-}
-
-void GraphicsContext::concat3DTransform(const TransformationMatrix& transform)
-{
-    concatCTM(transform.toAffineTransform());
-}
-
-void GraphicsContext::set3DTransform(const TransformationMatrix& transform)
-{
-    setCTM(transform.toAffineTransform());
-}
-#endif
 
 //utatodo: do we need the Java-only m_state.transform?
 AffineTransform GraphicsContext::getCTM(IncludeDeviceScale) const
@@ -897,10 +927,10 @@ void Gradient::platformDestroy()
 {
 }
 
-void Gradient::fill(GraphicsContext *gc, const FloatRect &rect)
+void Gradient::fill(GraphicsContext& gc, const FloatRect& rect)
 {
-    gc->setFillGradient(*this);
-    gc->fillRect(rect);
+    gc.setFillGradient(*this);
+    gc.fillRect(rect);
 }
 
 } // namespace WebCore

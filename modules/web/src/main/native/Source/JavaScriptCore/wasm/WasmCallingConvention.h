@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,6 +40,7 @@
 #include "LinkBuffer.h"
 #include "RegisterSet.h"
 #include "WasmFormat.h"
+#include "WasmSignature.h"
 
 namespace JSC { namespace Wasm {
 
@@ -83,7 +84,8 @@ private:
     }
 
 public:
-    void setupFrameInPrologue(CodeLocationDataLabelPtr* calleeMoveLocation, B3::Procedure& proc, B3::Origin origin, B3::BasicBlock* block) const
+    static unsigned headerSizeInBytes() { return headerSize; }
+    void setupFrameInPrologue(CodeLocationDataLabelPtr<WasmEntryPtrTag>* calleeMoveLocation, B3::Procedure& proc, B3::Origin origin, B3::BasicBlock* block) const
     {
         static_assert(CallFrameSlot::callee * sizeof(Register) < headerSize, "We rely on this here for now.");
         static_assert(CallFrameSlot::codeBlock * sizeof(Register) < headerSize, "We rely on this here for now.");
@@ -96,7 +98,7 @@ public:
                 GPRReg result = params[0].gpr();
                 MacroAssembler::DataLabelPtr moveLocation = jit.moveWithPatch(MacroAssembler::TrustedImmPtr(nullptr), result);
                 jit.addLinkTask([calleeMoveLocation, moveLocation] (LinkBuffer& linkBuffer) {
-                    *calleeMoveLocation = linkBuffer.locationOf(moveLocation);
+                    *calleeMoveLocation = linkBuffer.locationOf<WasmEntryPtrTag>(moveLocation);
                 });
             });
 
@@ -118,7 +120,7 @@ public:
     }
 
     template<typename Functor>
-    void loadArguments(const Signature* signature, B3::Procedure& proc, B3::BasicBlock* block, B3::Origin origin, const Functor& functor) const
+    void loadArguments(const Signature& signature, B3::Procedure& proc, B3::BasicBlock* block, B3::Origin origin, const Functor& functor) const
     {
         B3::Value* framePointer = block->appendNew<B3::Value>(proc, B3::FramePointer, origin);
 
@@ -126,8 +128,8 @@ public:
         size_t fpArgumentCount = 0;
         size_t stackOffset = headerSize;
 
-        for (size_t i = 0; i < signature->argumentCount(); ++i) {
-            B3::Type type = toB3Type(signature->argument(i));
+        for (size_t i = 0; i < signature.argumentCount(); ++i) {
+            B3::Type type = toB3Type(signature.argument(i));
             B3::Value* argument;
             B3::ValueRep rep = marshallArgument(type, gpArgumentCount, fpArgumentCount, stackOffset);
             if (rep.isReg()) {

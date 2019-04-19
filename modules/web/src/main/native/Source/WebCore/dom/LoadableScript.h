@@ -26,9 +26,8 @@
 #pragma once
 
 #include "ScriptElementCachedScriptFetcher.h"
-#include <runtime/ConsoleTypes.h>
+#include <JavaScriptCore/ConsoleTypes.h>
 #include <wtf/HashCountedSet.h>
-#include <wtf/RefCounted.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -41,7 +40,9 @@ public:
     enum class ErrorType {
         CachedScript,
         CrossOriginLoad,
+        MIMEType,
         Nosniff,
+        FailedIntegrityCheck,
     };
 
     struct ConsoleMessage {
@@ -55,7 +56,7 @@ public:
         std::optional<ConsoleMessage> consoleMessage;
     };
 
-    virtual ~LoadableScript() { }
+    virtual ~LoadableScript() = default;
 
     virtual bool isLoaded() const = 0;
     virtual std::optional<Error> error() const = 0;

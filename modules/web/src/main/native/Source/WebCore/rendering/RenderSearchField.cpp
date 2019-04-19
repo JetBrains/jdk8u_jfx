@@ -43,10 +43,13 @@
 #include "RenderView.h"
 #include "StyleResolver.h"
 #include "TextControlInnerElements.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 
 using namespace HTMLNames;
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderSearchField);
 
 RenderSearchField::RenderSearchField(HTMLInputElement& element, RenderStyle&& style)
     : RenderTextControlSingleLine(element, WTFMove(style))
@@ -97,7 +100,7 @@ void RenderSearchField::addSearchResult()
         return recentSearch.string == value;
     });
 
-    RecentSearch recentSearch = { value, std::chrono::system_clock::now() };
+    RecentSearch recentSearch = { value, WallTime::now() };
     m_recentSearches.insert(0, recentSearch);
     while (static_cast<int>(m_recentSearches.size()) > inputElement().maxResults())
         m_recentSearches.removeLast();
@@ -134,7 +137,10 @@ void RenderSearchField::showPopup()
         m_searchPopup->saveRecentSearches(name, m_recentSearches);
     }
 
-    m_searchPopup->popupMenu()->show(snappedIntRect(absoluteBoundingBoxRect()), &view().frameView(), -1);
+    FloatPoint absTopLeft = localToAbsolute(FloatPoint(), UseTransforms);
+    IntRect absBounds = absoluteBoundingBoxRectIgnoringTransforms();
+    absBounds.setLocation(roundedIntPoint(absTopLeft));
+    m_searchPopup->popupMenu()->show(absBounds, &view().frameView(), -1);
 }
 
 void RenderSearchField::hidePopup()
@@ -179,7 +185,7 @@ void RenderSearchField::updateCancelButtonVisibility() const
         return;
 
     const RenderStyle& curStyle = cancelButtonRenderer->style();
-    EVisibility buttonVisibility = visibilityForCancelButton();
+    Visibility buttonVisibility = visibilityForCancelButton();
     if (curStyle.visibility() == buttonVisibility)
         return;
 
@@ -188,9 +194,9 @@ void RenderSearchField::updateCancelButtonVisibility() const
     cancelButtonRenderer->setStyle(WTFMove(cancelButtonStyle));
 }
 
-EVisibility RenderSearchField::visibilityForCancelButton() const
+Visibility RenderSearchField::visibilityForCancelButton() const
 {
-    return (style().visibility() == HIDDEN || inputElement().value().isEmpty()) ? HIDDEN : VISIBLE;
+    return (style().visibility() == Visibility::Hidden || inputElement().value().isEmpty()) ? Visibility::Hidden : Visibility::Visible;
 }
 
 const AtomicString& RenderSearchField::autosaveName() const
@@ -264,8 +270,8 @@ PopupMenuStyle RenderSearchField::itemStyle(unsigned) const
 
 PopupMenuStyle RenderSearchField::menuStyle() const
 {
-    return PopupMenuStyle(style().visitedDependentColor(CSSPropertyColor), style().visitedDependentColor(CSSPropertyBackgroundColor), style().fontCascade(), style().visibility() == VISIBLE,
-        style().display() == NONE, true, style().textIndent(), style().direction(), isOverride(style().unicodeBidi()), PopupMenuStyle::CustomBackgroundColor);
+    return PopupMenuStyle(style().visitedDependentColorWithColorFilter(CSSPropertyColor), style().visitedDependentColorWithColorFilter(CSSPropertyBackgroundColor), style().fontCascade(), style().visibility() == Visibility::Visible,
+        style().display() == DisplayType::None, true, style().textIndent(), style().direction(), isOverride(style().unicodeBidi()), PopupMenuStyle::CustomBackgroundColor);
 }
 
 int RenderSearchField::clientInsetLeft() const
@@ -353,28 +359,10 @@ HostWindow* RenderSearchField::hostWindow() const
 
 Ref<Scrollbar> RenderSearchField::createScrollbar(ScrollableArea& scrollableArea, ScrollbarOrientation orientation, ScrollbarControlSize controlSize)
 {
-    bool hasCustomScrollbarStyle = style().hasPseudoStyle(SCROLLBAR);
+    bool hasCustomScrollbarStyle = style().hasPseudoStyle(PseudoId::Scrollbar);
     if (hasCustomScrollbarStyle)
         return RenderScrollbar::createCustomScrollbar(scrollableArea, orientation, &inputElement());
     return Scrollbar::createNativeScrollbar(scrollableArea, orientation, controlSize);
-}
-
-LayoutUnit RenderSearchField::computeLogicalHeightLimit() const
-{
-    return logicalHeight();
-}
-
-void RenderSearchField::centerContainerIfNeeded(RenderBox* containerRenderer) const
-{
-    if (!containerRenderer)
-        return;
-
-    if (containerRenderer->logicalHeight() <= contentLogicalHeight())
-        return;
-
-    // A quirk for find-in-page box on Safari Windows.
-    // http://webkit.org/b/63157
-    centerRenderer(*containerRenderer);
 }
 
 }

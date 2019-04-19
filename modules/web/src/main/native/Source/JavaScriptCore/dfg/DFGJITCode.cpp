@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #if ENABLE(DFG_JIT)
 
 #include "CodeBlock.h"
+#include "FTLForOSREntryJITCode.h"
 #include "JSCInlines.h"
 #include "TrackedReferences.h"
 
@@ -116,7 +117,7 @@ RegisterSet JITCode::liveRegistersToPreserveAtExceptionHandlingCallSite(CodeBloc
         }
     }
 
-    return RegisterSet();
+    return { };
 }
 
 #if ENABLE(FTL_JIT)
@@ -201,6 +202,15 @@ void JITCode::setOptimizationThresholdBasedOnCompilationResult(
     }
     RELEASE_ASSERT_NOT_REACHED();
 }
+
+void JITCode::setOSREntryBlock(VM& vm, const JSCell* owner, CodeBlock* osrEntryBlock)
+{
+    if (Options::verboseOSR()) {
+        dataLog(RawPointer(this), ": Setting OSR entry block to ", RawPointer(osrEntryBlock), "\n");
+        dataLog("OSR entries will go to ", osrEntryBlock->jitCode()->ftlForOSREntry()->addressForCall(ArityCheckNotRequired), "\n");
+    }
+    m_osrEntryBlock.set(vm, owner, osrEntryBlock);
+}
 #endif // ENABLE(FTL_JIT)
 
 void JITCode::validateReferences(const TrackedReferences& trackedReferences)
@@ -219,12 +229,28 @@ std::optional<CodeOrigin> JITCode::findPC(CodeBlock*, void* pc)
 {
     for (OSRExit& exit : osrExit) {
         if (ExecutableMemoryHandle* handle = exit.m_code.executableMemory()) {
-            if (handle->start() <= pc && pc < handle->end())
+            if (handle->start().untaggedPtr() <= pc && pc < handle->end().untaggedPtr())
                 return std::optional<CodeOrigin>(exit.m_codeOriginForExitProfile);
         }
     }
 
     return std::nullopt;
+}
+
+void JITCode::finalizeOSREntrypoints()
+{
+    auto comparator = [] (const auto& a, const auto& b) {
+        return a.m_bytecodeIndex < b.m_bytecodeIndex;
+    };
+    std::sort(osrEntry.begin(), osrEntry.end(), comparator);
+
+#if !ASSERT_DISABLED
+    auto verifyIsSorted = [&] (auto& osrVector) {
+        for (unsigned i = 0; i + 1 < osrVector.size(); ++i)
+            ASSERT(osrVector[i].m_bytecodeIndex <= osrVector[i + 1].m_bytecodeIndex);
+    };
+    verifyIsSorted(osrEntry);
+#endif
 }
 
 } } // namespace JSC::DFG

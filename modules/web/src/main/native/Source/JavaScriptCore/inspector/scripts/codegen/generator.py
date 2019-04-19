@@ -38,10 +38,19 @@ log = logging.getLogger('global')
 def ucfirst(str):
     return str[:1].upper() + str[1:]
 
-_ALWAYS_SPECIALCASED_ENUM_VALUE_SUBSTRINGS = set(['API', 'CSS', 'DOM', 'HTML', 'JIT', 'XHR', 'XML', 'IOS', 'MacOS'])
+_ALWAYS_SPECIALCASED_ENUM_VALUE_SUBSTRINGS = set(['2D', 'API', 'CSS', 'DOM', 'HTML', 'JIT', 'XHR', 'XML', 'IOS', 'MacOS'])
 _ALWAYS_SPECIALCASED_ENUM_VALUE_LOOKUP_TABLE = dict([(s.upper(), s) for s in _ALWAYS_SPECIALCASED_ENUM_VALUE_SUBSTRINGS])
 
-# These objects are built manually by creating and setting InspectorValues.
+_ENUM_IDENTIFIER_RENAME_MAP = {
+    'canvas-webgl': 'CanvasWebGL',  # Recording.Type.canvas-webgl
+    'webgl': 'WebGL',  # Canvas.ContextType.webgl
+    'webgl2': 'WebGL2',  # Canvas.ContextType.webgl2
+    'webgpu': 'WebGPU',  # Canvas.ContextType.webgpu
+    'bitmaprenderer': 'BitmapRenderer',  # Canvas.ContextType.bitmaprenderer
+    'webrtc': 'WebRTC',  # Console.ChannelSource.webrtc
+}
+
+# These objects are built manually by creating and setting JSON::Value instances.
 # Before sending these over the protocol, their shapes are checked against the specification.
 # So, any types referenced by these types require debug-only assertions that check values.
 # Calculating necessary assertions is annoying, and adds a lot of complexity to the generator.
@@ -65,16 +74,15 @@ _TYPES_NEEDING_RUNTIME_CASTS = set([
 ])
 
 # FIXME: This should be converted into a property in JSON.
-_TYPES_WITH_OPEN_FIELDS = set([
-    "Timeline.TimelineEvent",
+_TYPES_WITH_OPEN_FIELDS = {
+    "Timeline.TimelineEvent": [],
     # InspectorStyleSheet not only creates this property but wants to read it and modify it.
-    "CSS.CSSProperty",
+    "CSS.CSSProperty": [],
     # InspectorNetworkAgent needs to update mime-type.
-    "Network.Response",
+    "Network.Response": ["mimeType"],
     # For testing purposes only.
-    "Test.OpenParameterBundle"
-])
-
+    "Test.OpenParameters": ["alpha"],
+}
 
 class Generator:
     def __init__(self, model, platform, input_filepath):
@@ -111,6 +119,25 @@ class Generator:
     def generate_license(self):
         return Template(Templates.CopyrightBlock).substitute(None, inputFilename=os.path.basename(self._input_filepath))
 
+    def generate_includes_from_entries(self, entries):
+        includes = set()
+        for entry in entries:
+            (allowed_framework_names, data) = entry
+            (framework_name, header_path) = data
+
+            allowed_frameworks = allowed_framework_names + ["Test"]
+            if self.model().framework.name not in allowed_frameworks:
+                continue
+
+            if framework_name == "WTF":
+                includes.add("#include <%s>" % header_path)
+            elif self.model().framework.name != framework_name:
+                includes.add("#include <%s/%s>" % (framework_name, os.path.basename(header_path)))
+            else:
+                includes.add("#include \"%s\"" % os.path.basename(header_path))
+
+        return sorted(list(includes))
+
     # These methods are overridden by subclasses.
     def non_supplemental_domains(self):
         return filter(lambda domain: not domain.is_supplemental, self.model().domains)
@@ -143,6 +170,13 @@ class Generator:
     @staticmethod
     def type_has_open_fields(_type):
         return _type.qualified_name() in _TYPES_WITH_OPEN_FIELDS
+
+    @staticmethod
+    def open_fields(type_declaration):
+        fields = set(_TYPES_WITH_OPEN_FIELDS.get(type_declaration.type.qualified_name(), []))
+        if not fields:
+            return type_declaration.type_members
+        return filter(lambda member: member.member_name in fields, type_declaration.type_members)
 
     def type_needs_shape_assertions(self, _type):
         if not hasattr(self, "_types_needing_shape_assertions"):
@@ -245,7 +279,7 @@ class Generator:
             return _ALWAYS_SPECIALCASED_ENUM_VALUE_LOOKUP_TABLE[match.group(1).upper()]
 
         # Split on hyphen, introduce camelcase, and force uppercasing of acronyms.
-        subwords = map(ucfirst, enum_value.split('-'))
+        subwords = map(ucfirst, _ENUM_IDENTIFIER_RENAME_MAP.get(enum_value, enum_value).split('-'))
         return re.sub(re.compile(regex, re.IGNORECASE), replaceCallback, "".join(subwords))
 
     @staticmethod

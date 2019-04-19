@@ -36,8 +36,8 @@
 
 #if USE(SOUP)
 
-#include "SessionID.h"
-#include <wtf/RefCounted.h>
+#include <pal/SessionID.h>
+#include <wtf/StreamBuffer.h>
 #include <wtf/glib/GRefPtr.h>
 
 namespace WebCore {
@@ -47,35 +47,41 @@ class SocketStreamHandleClient;
 
 class SocketStreamHandleImpl final : public SocketStreamHandle {
 public:
-    static Ref<SocketStreamHandleImpl> create(const URL&, SocketStreamHandleClient&, SessionID, const String&);
-    static Ref<SocketStreamHandle> create(GSocketConnection*, SocketStreamHandleClient&);
-
+    static Ref<SocketStreamHandleImpl> create(const URL&, SocketStreamHandleClient&, PAL::SessionID, const String&, SourceApplicationAuditToken&&);
     virtual ~SocketStreamHandleImpl();
 
+    const URL& url() const { return m_url; }
+
+    void platformSend(const char* data, size_t length, Function<void(bool)>&&) final;
+    void platformClose() final;
 private:
     SocketStreamHandleImpl(const URL&, SocketStreamHandleClient&);
 
-    std::optional<size_t> platformSend(const char* data, size_t length) final;
-    void platformClose() final;
+    size_t bufferedAmount() final;
+    std::optional<size_t> platformSendInternal(const char*, size_t);
+    bool sendPendingData();
 
     void beginWaitingForSocketWritability();
     void stopWaitingForSocketWritability();
 
-    static void connectedCallback(GSocketClient*, GAsyncResult*, SocketStreamHandleImpl*);
+    static void connectedCallback(GObject*, GAsyncResult*, SocketStreamHandleImpl*);
     static void readReadyCallback(GInputStream*, GAsyncResult*, SocketStreamHandleImpl*);
     static gboolean writeReadyCallback(GPollableOutputStream*, SocketStreamHandleImpl*);
 
-    void connected(GRefPtr<GSocketConnection>&&);
+    void connected(GRefPtr<GIOStream>&&);
     void readBytes(gssize);
     void didFail(SocketStreamError&&);
     void writeReady();
 
-    GRefPtr<GSocketConnection> m_socketConnection;
+    GRefPtr<GIOStream> m_stream;
     GRefPtr<GInputStream> m_inputStream;
     GRefPtr<GPollableOutputStream> m_outputStream;
     GRefPtr<GSource> m_writeReadySource;
     GRefPtr<GCancellable> m_cancellable;
     std::unique_ptr<char[]> m_readBuffer;
+
+    StreamBuffer<char, 1024 * 1024> m_buffer;
+    static const unsigned maxBufferSize = 100 * 1024 * 1024;
 };
 
 } // namespace WebCore

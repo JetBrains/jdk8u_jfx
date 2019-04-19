@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,13 +21,15 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
-*/
+ */
+
+#undef IMPL
 
 #include "config.h"
 
 #include <WebCore/HTMLImageElement.h>
 #include <WebCore/HTMLNames.h>
-#include <WebCore/JSMainThreadExecState.h>
+#include <WebCore/JSExecState.h>
 
 #include <wtf/RefPtr.h>
 #include <wtf/GetPtr.h>
@@ -103,37 +105,37 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_setCrossOrig
     IMPL->setCrossOrigin(String(env, value));
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getHeightImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getHeightImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->height();
 }
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_setHeightImpl(JNIEnv* env, jclass, jlong peer, jint value)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_setHeightImpl(JNIEnv*, jclass, jlong peer, jint value)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->setHeight(value);
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getHspaceImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getHspaceImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->getIntegralAttribute(WebCore::HTMLNames::hspaceAttr);
 }
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_setHspaceImpl(JNIEnv* env, jclass, jlong peer, jint value)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_setHspaceImpl(JNIEnv*, jclass, jlong peer, jint value)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->setIntegralAttribute(WebCore::HTMLNames::hspaceAttr, value);
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getIsMapImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getIsMapImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->hasAttribute(WebCore::HTMLNames::ismapAttr);
 }
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_setIsMapImpl(JNIEnv* env, jclass, jlong peer, jboolean value)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_setIsMapImpl(JNIEnv*, jclass, jlong peer, jboolean value)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->setBooleanAttribute(WebCore::HTMLNames::ismapAttr, value);
@@ -205,31 +207,31 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_setUseMapImp
     IMPL->setAttributeWithoutSynchronization(WebCore::HTMLNames::usemapAttr, String(env, value));
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getVspaceImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getVspaceImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->getIntegralAttribute(WebCore::HTMLNames::vspaceAttr);
 }
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_setVspaceImpl(JNIEnv* env, jclass, jlong peer, jint value)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_setVspaceImpl(JNIEnv*, jclass, jlong peer, jint value)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->setIntegralAttribute(WebCore::HTMLNames::vspaceAttr, value);
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getWidthImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getWidthImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->width();
 }
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_setWidthImpl(JNIEnv* env, jclass, jlong peer, jint value)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_setWidthImpl(JNIEnv*, jclass, jlong peer, jint value)
 {
     WebCore::JSMainThreadNullState state;
     IMPL->setWidth(value);
 }
 
-JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getCompleteImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jboolean JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getCompleteImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->complete();
@@ -247,25 +249,25 @@ JNIEXPORT void JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_setLowsrcImp
     IMPL->setAttributeWithoutSynchronization(WebCore::HTMLNames::lowsrcAttr, String(env, value));
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getNaturalHeightImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getNaturalHeightImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->naturalHeight();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getNaturalWidthImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getNaturalWidthImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->naturalWidth();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getXImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getXImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->x();
 }
 
-JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getYImpl(JNIEnv* env, jclass, jlong peer)
+JNIEXPORT jint JNICALL Java_com_sun_webkit_dom_HTMLImageElementImpl_getYImpl(JNIEnv*, jclass, jlong peer)
 {
     WebCore::JSMainThreadNullState state;
     return IMPL->y();

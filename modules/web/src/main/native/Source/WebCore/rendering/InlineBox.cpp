@@ -27,6 +27,8 @@
 #include "RenderBlockFlow.h"
 #include "RenderLineBreak.h"
 #include "RootInlineBox.h"
+#include <wtf/IsoMallocInlines.h>
+#include <wtf/text/TextStream.h>
 
 #if ENABLE(TREE_DEBUGGING)
 #include <stdio.h>
@@ -34,16 +36,18 @@
 
 namespace WebCore {
 
+WTF_MAKE_ISO_ALLOCATED_IMPL(InlineBox);
+
 struct SameSizeAsInlineBox {
-    virtual ~SameSizeAsInlineBox() { }
+    virtual ~SameSizeAsInlineBox() = default;
     void* a[4];
     FloatPoint b;
     float c[2];
-    unsigned d; /*InlineBoxBitfields m_bitfields is padded to 32bits*/
+    unsigned d : 23;
 #if !ASSERT_WITH_SECURITY_IMPLICATION_DISABLED
-    bool i;
     unsigned s;
     bool f;
+    bool i;
 #endif
 };
 
@@ -100,22 +104,23 @@ void InlineBox::showLineTreeForThis() const
     m_renderer.containingBlock()->showLineTreeForThis();
 }
 
-void InlineBox::showLineTreeAndMark(const InlineBox* markedBox, int depth) const
+void InlineBox::outputLineTreeAndMark(TextStream& stream, const InlineBox* markedBox, int depth) const
 {
-    showLineBox(markedBox == this, depth);
+    outputLineBox(stream, markedBox == this, depth);
 }
 
-void InlineBox::showLineBox(bool mark, int depth) const
+void InlineBox::outputLineBox(TextStream& stream, bool mark, int depth) const
 {
-    fprintf(stderr, "-------- %c-", isDirty() ? 'D' : '-');
+    stream << "-------- " << (isDirty() ? "D" : "-") << "-";
     int printedCharacters = 0;
     if (mark) {
-        fprintf(stderr, "*");
+        stream << "*";
         ++printedCharacters;
     }
     while (++printedCharacters <= depth * 2)
-        fputc(' ', stderr);
-    fprintf(stderr, "%s  (%.2f, %.2f) (%.2f, %.2f) (%p) renderer->(%p)\n", boxName(), x(), y(), width(), height(), this, &renderer());
+        stream << " ";
+    stream << boxName() << " " << FloatRect(x(), y(), width(), height()) << " (" << this << ") renderer->(" << &renderer() << ")";
+    stream.nextLine();
 }
 
 #endif // ENABLE(TREE_DEBUGGING)
@@ -286,39 +291,38 @@ void InlineBox::clearKnownToHaveNoOverflow()
         parent()->clearKnownToHaveNoOverflow();
 }
 
-FloatPoint InlineBox::locationIncludingFlipping()
+FloatPoint InlineBox::locationIncludingFlipping() const
 {
     if (!m_renderer.style().isFlippedBlocksWritingMode())
-        return FloatPoint(x(), y());
+        return topLeft();
     RenderBlockFlow& block = root().blockFlow();
     if (block.style().isHorizontalWritingMode())
-        return FloatPoint(x(), block.height() - height() - y());
-    else
-        return FloatPoint(block.width() - width() - x(), y());
+        return { x(), block.height() - height() - y() };
+    return { block.width() - width() - x(), y() };
 }
 
-void InlineBox::flipForWritingMode(FloatRect& rect)
+void InlineBox::flipForWritingMode(FloatRect& rect) const
 {
     if (!m_renderer.style().isFlippedBlocksWritingMode())
         return;
     root().blockFlow().flipForWritingMode(rect);
 }
 
-FloatPoint InlineBox::flipForWritingMode(const FloatPoint& point)
+FloatPoint InlineBox::flipForWritingMode(const FloatPoint& point) const
 {
     if (!m_renderer.style().isFlippedBlocksWritingMode())
         return point;
     return root().blockFlow().flipForWritingMode(point);
 }
 
-void InlineBox::flipForWritingMode(LayoutRect& rect)
+void InlineBox::flipForWritingMode(LayoutRect& rect) const
 {
     if (!m_renderer.style().isFlippedBlocksWritingMode())
         return;
     root().blockFlow().flipForWritingMode(rect);
 }
 
-LayoutPoint InlineBox::flipForWritingMode(const LayoutPoint& point)
+LayoutPoint InlineBox::flipForWritingMode(const LayoutPoint& point) const
 {
     if (!m_renderer.style().isFlippedBlocksWritingMode())
         return point;

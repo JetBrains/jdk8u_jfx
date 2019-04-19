@@ -31,7 +31,7 @@
 #include "HeapProfiler.h"
 #include "HeapSnapshot.h"
 #include "JSCInlines.h"
-#include "JSCell.h"
+#include "JSCast.h"
 #include "PreventCollectionScope.h"
 #include "VM.h"
 #include <wtf/text/StringBuilder.h>
@@ -58,7 +58,7 @@ void HeapSnapshotBuilder::buildSnapshot()
     m_snapshot = std::make_unique<HeapSnapshot>(m_profiler.mostRecentSnapshot());
     {
         m_profiler.setActiveSnapshotBuilder(this);
-        m_profiler.vm().heap.collectAllGarbage();
+        m_profiler.vm().heap.collectNow(Sync, CollectionScope::Full);
         m_profiler.setActiveSnapshotBuilder(nullptr);
     }
     m_snapshot->finalize();
@@ -69,7 +69,7 @@ void HeapSnapshotBuilder::buildSnapshot()
 void HeapSnapshotBuilder::appendNode(JSCell* cell)
 {
     ASSERT(m_profiler.activeSnapshotBuilder() == this);
-    ASSERT(Heap::isMarkedConcurrently(cell));
+    ASSERT(Heap::isMarked(cell));
 
     if (hasExistingNodeForCell(cell))
         return;
@@ -199,7 +199,7 @@ String HeapSnapshotBuilder::json()
     return json([] (const HeapSnapshotNode&) { return true; });
 }
 
-String HeapSnapshotBuilder::json(std::function<bool (const HeapSnapshotNode&)> allowNodeCallback)
+String HeapSnapshotBuilder::json(Function<bool (const HeapSnapshotNode&)> allowNodeCallback)
 {
     VM& vm = m_profiler.vm();
     DeferGCForAWhile deferGC(vm.heap);
@@ -240,7 +240,7 @@ String HeapSnapshotBuilder::json(std::function<bool (const HeapSnapshotNode&)> a
         json.append(',');
         json.appendNumber(node.identifier);
         json.append(',');
-        json.appendNumber(node.cell->estimatedSizeInBytes());
+        json.appendNumber(node.cell->estimatedSizeInBytes(vm));
         json.append(',');
         json.appendNumber(classNameIndex);
         json.append(',');

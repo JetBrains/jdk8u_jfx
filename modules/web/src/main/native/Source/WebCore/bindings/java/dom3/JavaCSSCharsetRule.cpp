@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,7 +21,9 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
-*/
+ */
+
+#undef IMPL
 
 #include "config.h"
 #include <wtf/java/JavaEnv.h>
@@ -33,12 +35,12 @@ extern "C" {
 // This has been removed from the CSS OM, so we're just keeping this around to not crash.
 
 // Attributes
-JNIEXPORT jstring JNICALL Java_com_sun_webkit_dom_CSSCharsetRuleImpl_getEncodingImpl(JNIEnv* env, jclass clazz, jlong peer)
+JNIEXPORT jstring JNICALL Java_com_sun_webkit_dom_CSSCharsetRuleImpl_getEncodingImpl(JNIEnv*, jclass, jlong)
 {
     return nullptr;
 }
 
-JNIEXPORT void JNICALL Java_com_sun_webkit_dom_CSSCharsetRuleImpl_setEncodingImpl(JNIEnv* env, jclass clazz, jlong peer, jstring value)
+JNIEXPORT void JNICALL Java_com_sun_webkit_dom_CSSCharsetRuleImpl_setEncodingImpl(JNIEnv*, jclass, jlong, jstring)
 {
 }
 

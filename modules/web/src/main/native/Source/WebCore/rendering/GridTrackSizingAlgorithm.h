@@ -47,12 +47,13 @@ class GridTrackSizingAlgorithmStrategy;
 
 class GridTrack {
 public:
-    GridTrack() { }
+    GridTrack() = default;
 
     const LayoutUnit& baseSize() const;
     void setBaseSize(LayoutUnit);
 
     const LayoutUnit& growthLimit() const;
+    bool growthLimitIsInfinite() const { return m_growthLimit == infinity; }
     void setGrowthLimit(LayoutUnit);
 
     bool infiniteGrowthPotential() const { return growthLimitIsInfinite() || m_infinitelyGrowable; }
@@ -72,7 +73,6 @@ public:
     std::optional<LayoutUnit> growthLimitCap() const { return m_growthLimitCap; }
 
 private:
-    bool growthLimitIsInfinite() const { return m_growthLimit == infinity; }
     bool isGrowthLimitBiggerThanBaseSize() const { return growthLimitIsInfinite() || m_growthLimit >= m_baseSize; }
 
     void ensureGrowthLimitIsBiggerThanBaseSize();
@@ -102,7 +102,7 @@ public:
 
     // Required by RenderGrid. Try to minimize the exposed surface.
     const Grid& grid() const { return m_grid; }
-    GridTrackSize gridTrackSize(GridTrackSizingDirection, unsigned translatedIndex, SizingOperation) const;
+    GridTrackSize gridTrackSize(GridTrackSizingDirection, unsigned translatedIndex) const;
 
     LayoutUnit minContentSize() const { return m_minContentSize; };
     LayoutUnit maxContentSize() const { return m_maxContentSize; };
@@ -113,15 +113,21 @@ public:
     std::optional<LayoutUnit> freeSpace(GridTrackSizingDirection direction) const { return direction == ForColumns ? m_freeSpaceColumns : m_freeSpaceRows; }
     void setFreeSpace(GridTrackSizingDirection, std::optional<LayoutUnit>);
 
+    std::optional<LayoutUnit> availableSpace(GridTrackSizingDirection direction) const { return direction == ForColumns ? m_availableSpaceColumns : m_availableSpaceRows; }
+    void setAvailableSpace(GridTrackSizingDirection, std::optional<LayoutUnit>);
+
+    LayoutUnit computeTrackBasedSize() const;
+
+    bool hasAnyPercentSizedRowsIndefiniteHeight() const { return m_hasPercentSizedRowsIndefiniteHeight; }
+
 #ifndef NDEBUG
     bool tracksAreWiderThanMinTrackBreadth() const;
 #endif
 
 private:
-    GridTrackSize gridTrackSize(GridTrackSizingDirection direction, unsigned translatedIndex) const { return gridTrackSize(direction, translatedIndex, m_sizingOperation); }
+    std::optional<LayoutUnit> availableSpace() const { return availableSpace(m_direction); }
     const GridTrackSize& rawGridTrackSize(GridTrackSizingDirection, unsigned translatedIndex) const;
     LayoutUnit assumedRowsSizeForOrthogonalChild(const RenderBox&) const;
-    LayoutUnit computeTrackBasedSize() const;
 
     // Helper methods for step 1. initializeTrackSizes().
     LayoutUnit initialBaseSize(const GridTrackSize&) const;
@@ -150,13 +156,16 @@ private:
     void initializeTrackSizes();
     void resolveIntrinsicTrackSizes();
     void stretchFlexibleTracks(std::optional<LayoutUnit> freeSpace);
+    void stretchAutoTracks();
 
     // State machine.
     void advanceNextState();
     bool isValidTransition() const;
 
     bool m_needsSetup { true };
-    std::optional<LayoutUnit> m_availableSpace;
+    bool m_hasPercentSizedRowsIndefiniteHeight { false };
+    std::optional<LayoutUnit> m_availableSpaceRows;
+    std::optional<LayoutUnit> m_availableSpaceColumns;
 
     std::optional<LayoutUnit> m_freeSpaceColumns;
     std::optional<LayoutUnit> m_freeSpaceRows;
@@ -167,6 +176,7 @@ private:
     Vector<GridTrack> m_rows;
     Vector<unsigned> m_contentSizedTracksIndex;
     Vector<unsigned> m_flexibleSizedTracksIndex;
+    Vector<unsigned> m_autoSizedTracksForStretchIndex;
 
     GridTrackSizingDirection m_direction;
     SizingOperation m_sizingOperation;
@@ -212,21 +222,22 @@ public:
     LayoutUnit maxContentForChild(RenderBox&) const;
     LayoutUnit minSizeForChild(RenderBox&) const;
 
-    virtual ~GridTrackSizingAlgorithmStrategy() { }
+    virtual ~GridTrackSizingAlgorithmStrategy() = default;
 
     virtual void maximizeTracks(Vector<GridTrack>&, std::optional<LayoutUnit>& freeSpace) = 0;
     virtual double findUsedFlexFraction(Vector<unsigned>& flexibleSizedTracksIndex, GridTrackSizingDirection, std::optional<LayoutUnit> initialFreeSpace) const = 0;
     virtual bool recomputeUsedFlexFractionIfNeeded(double& flexFraction, LayoutUnit& totalGrowth) const = 0;
+    virtual LayoutUnit freeSpaceForStretchAutoTracksStep() const = 0;
 
 protected:
     GridTrackSizingAlgorithmStrategy(GridTrackSizingAlgorithm& algorithm)
         : m_algorithm(algorithm) { }
 
-    virtual LayoutUnit minLogicalWidthForChild(RenderBox&, Length childMinSize, GridTrackSizingDirection) const = 0;
+    virtual LayoutUnit minLogicalWidthForChild(RenderBox&, Length childMinSize, LayoutUnit availableSize) const = 0;
     virtual void layoutGridItemForMinSizeComputation(RenderBox&, bool overrideSizeHasChanged) const = 0;
 
     LayoutUnit logicalHeightForChild(RenderBox&) const;
-    bool updateOverrideContainingBlockContentSizeForChild(RenderBox&, GridTrackSizingDirection) const;
+    bool updateOverrideContainingBlockContentSizeForChild(RenderBox&, GridTrackSizingDirection, std::optional<LayoutUnit> = std::nullopt) const;
 
     // GridTrackSizingAlgorithm accessors for subclasses.
     LayoutUnit computeTrackBasedSize() const { return m_algorithm.computeTrackBasedSize(); }
@@ -234,6 +245,7 @@ protected:
     double findFrUnitSize(const GridSpan& tracksSpan, LayoutUnit leftOverSpace) const { return m_algorithm.findFrUnitSize(tracksSpan, leftOverSpace); }
     void distributeSpaceToTracks(Vector<GridTrack*>& tracks, LayoutUnit& availableLogicalSpace) const { m_algorithm.distributeSpaceToTracks<MaximizeTracks>(tracks, nullptr, availableLogicalSpace); }
     const RenderGrid* renderGrid() const { return m_algorithm.m_renderGrid; }
+    std::optional<LayoutUnit> availableSpace() const { return m_algorithm.availableSpace(); }
 
     GridTrackSizingAlgorithm& m_algorithm;
 };

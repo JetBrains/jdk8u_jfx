@@ -66,7 +66,7 @@ URL SecurityOrigin::extractInnerURL(const URL& url)
 {
     // FIXME: Update this callsite to use the innerURL member function when
     // we finish implementing it.
-    return URL(ParsedURLString, decodeURLEscapeSequences(url.path()));
+    return { URL(), decodeURLEscapeSequences(url.path()) };
 }
 
 static RefPtr<SecurityOrigin> getCachedOrigin(const URL& url)
@@ -99,45 +99,87 @@ static bool shouldTreatAsUniqueOrigin(const URL& url)
     return false;
 }
 
-SecurityOrigin::SecurityOrigin(const URL& url)
-    : m_protocol(url.protocol().isNull() ? emptyString() : url.protocol().toString().convertToASCIILowercase())
-    , m_host(url.host().isNull() ? emptyString() : url.host().convertToASCIILowercase())
-    , m_port(url.port())
+static bool isLoopbackIPAddress(StringView host)
 {
-    // document.domain starts as m_host, but can be set by the DOM.
-    m_domain = m_host;
+    // The IPv6 loopback address is 0:0:0:0:0:0:0:1, which compresses to ::1.
+    if (host == "[::1]")
+        return true;
 
-    if (m_port && isDefaultPortForProtocol(m_port.value(), m_protocol))
-        m_port = std::nullopt;
+    // Check to see if it's a valid IPv4 address that has the form 127.*.*.*.
+    if (!host.startsWith("127."))
+        return false;
+    size_t dotsFound = 0;
+    for (size_t i = 0; i < host.length(); ++i) {
+        if (host[i] == '.') {
+            dotsFound++;
+            continue;
+        }
+        if (!isASCIIDigit(host[i]))
+            return false;
+    }
+    return dotsFound == 3;
+}
+
+// https://w3c.github.io/webappsec-secure-contexts/#is-origin-trustworthy (Editor's Draft, 17 November 2016)
+static bool shouldTreatAsPotentiallyTrustworthy(const String& protocol, const String& host)
+{
+    if (SchemeRegistry::shouldTreatURLSchemeAsSecure(protocol))
+        return true;
+
+    if (SecurityOrigin::isLocalHostOrLoopbackIPAddress(host))
+        return true;
+
+    if (SchemeRegistry::shouldTreatURLSchemeAsLocal(protocol))
+        return true;
+
+    return false;
+}
+
+bool shouldTreatAsPotentiallyTrustworthy(const URL& url)
+{
+    return shouldTreatAsPotentiallyTrustworthy(url.protocol().toStringWithoutCopying(), url.host().toStringWithoutCopying());
+}
+
+SecurityOrigin::SecurityOrigin(const URL& url)
+    : m_data(SecurityOriginData::fromURL(url))
+    , m_isLocal(SchemeRegistry::shouldTreatURLSchemeAsLocal(m_data.protocol))
+{
+    // document.domain starts as m_data.host, but can be set by the DOM.
+    m_domain = m_data.host;
+
+    if (m_data.port && isDefaultPortForProtocol(m_data.port.value(), m_data.protocol))
+        m_data.port = std::nullopt;
 
     // By default, only local SecurityOrigins can load local resources.
     m_canLoadLocalResources = isLocal();
 
     if (m_canLoadLocalResources)
         m_filePath = url.fileSystemPath(); // In case enforceFilePathSeparation() is called.
+
+    m_isPotentiallyTrustworthy = shouldTreatAsPotentiallyTrustworthy(url);
 }
 
 SecurityOrigin::SecurityOrigin()
-    : m_protocol(emptyString())
-    , m_host(emptyString())
-    , m_domain(emptyString())
-    , m_isUnique(true)
+    : m_data { emptyString(), emptyString(), std::nullopt }
+    , m_domain { emptyString() }
+    , m_isUnique { true }
+    , m_isPotentiallyTrustworthy { true }
 {
 }
 
 SecurityOrigin::SecurityOrigin(const SecurityOrigin* other)
-    : m_protocol(other->m_protocol.isolatedCopy())
-    , m_host(other->m_host.isolatedCopy())
-    , m_domain(other->m_domain.isolatedCopy())
-    , m_filePath(other->m_filePath.isolatedCopy())
-    , m_port(other->m_port)
-    , m_isUnique(other->m_isUnique)
-    , m_universalAccess(other->m_universalAccess)
-    , m_domainWasSetInDOM(other->m_domainWasSetInDOM)
-    , m_canLoadLocalResources(other->m_canLoadLocalResources)
-    , m_storageBlockingPolicy(other->m_storageBlockingPolicy)
-    , m_enforceFilePathSeparation(other->m_enforceFilePathSeparation)
-    , m_needsStorageAccessFromFileURLsQuirk(other->m_needsStorageAccessFromFileURLsQuirk)
+    : m_data { other->m_data.isolatedCopy() }
+    , m_domain { other->m_domain.isolatedCopy() }
+    , m_filePath { other->m_filePath.isolatedCopy() }
+    , m_isUnique { other->m_isUnique }
+    , m_universalAccess { other->m_universalAccess }
+    , m_domainWasSetInDOM { other->m_domainWasSetInDOM }
+    , m_canLoadLocalResources { other->m_canLoadLocalResources }
+    , m_storageBlockingPolicy { other->m_storageBlockingPolicy }
+    , m_enforcesFilePathSeparation { other->m_enforcesFilePathSeparation }
+    , m_needsStorageAccessFromFileURLsQuirk { other->m_needsStorageAccessFromFileURLsQuirk }
+    , m_isPotentiallyTrustworthy { other->m_isPotentiallyTrustworthy }
+    , m_isLocal { other->m_isLocal }
 {
 }
 
@@ -218,9 +260,9 @@ bool SecurityOrigin::canAccess(const SecurityOrigin& other) const
     // this is a security vulnerability.
 
     bool canAccess = false;
-    if (m_protocol == other.m_protocol) {
+    if (m_data.protocol == other.m_data.protocol) {
         if (!m_domainWasSetInDOM && !other.m_domainWasSetInDOM) {
-            if (m_host == other.m_host && m_port == other.m_port)
+            if (m_data.host == other.m_data.host && m_data.port == other.m_data.port)
                 canAccess = true;
         } else if (m_domainWasSetInDOM && other.m_domainWasSetInDOM) {
             if (m_domain == other.m_domain)
@@ -238,10 +280,7 @@ bool SecurityOrigin::passesFileCheck(const SecurityOrigin& other) const
 {
     ASSERT(isLocal() && other.isLocal());
 
-    if (!m_enforceFilePathSeparation && !other.m_enforceFilePathSeparation)
-        return true;
-
-    return (m_filePath == other.m_filePath);
+    return !m_enforcesFilePathSeparation && !other.m_enforcesFilePathSeparation;
 }
 
 bool SecurityOrigin::canRequest(const URL& url) const
@@ -289,14 +328,16 @@ bool SecurityOrigin::canReceiveDragData(const SecurityOrigin& dragInitiator) con
 // This function should be removed as an outcome of https://bugs.webkit.org/show_bug.cgi?id=69196
 static bool isFeedWithNestedProtocolInHTTPFamily(const URL& url)
 {
-    const String& urlString = url.string();
-    if (!urlString.startsWith("feed", false))
+    const String& string = url.string();
+    if (!startsWithLettersIgnoringASCIICase(string, "feed"))
         return false;
-
-    return urlString.startsWith("feed://", false)
-        || urlString.startsWith("feed:http:", false) || urlString.startsWith("feed:https:", false)
-        || urlString.startsWith("feeds:http:", false) || urlString.startsWith("feeds:https:", false)
-        || urlString.startsWith("feedsearch:http:", false) || urlString.startsWith("feedsearch:https:", false);
+    return startsWithLettersIgnoringASCIICase(string, "feed://")
+        || startsWithLettersIgnoringASCIICase(string, "feed:http:")
+        || startsWithLettersIgnoringASCIICase(string, "feed:https:")
+        || startsWithLettersIgnoringASCIICase(string, "feeds:http:")
+        || startsWithLettersIgnoringASCIICase(string, "feeds:https:")
+        || startsWithLettersIgnoringASCIICase(string, "feedsearch:http:")
+        || startsWithLettersIgnoringASCIICase(string, "feedsearch:https:");
 }
 
 bool SecurityOrigin::canDisplay(const URL& url) const
@@ -305,7 +346,7 @@ bool SecurityOrigin::canDisplay(const URL& url) const
         return true;
 
 #if !PLATFORM(IOS)
-    if (m_protocol == "file" && url.isLocalFile() && !filesHaveSameVolume(m_filePath, url.fileSystemPath()))
+    if (m_data.protocol == "file" && url.isLocalFile() && !FileSystem::filesHaveSameVolume(m_filePath, url.fileSystemPath()))
         return false;
 #endif
 
@@ -318,7 +359,7 @@ bool SecurityOrigin::canDisplay(const URL& url) const
         return canRequest(url);
 
     if (SchemeRegistry::shouldTreatURLSchemeAsDisplayIsolated(protocol))
-        return equalIgnoringASCIICase(m_protocol, protocol) || SecurityPolicy::isAccessToURLWhiteListed(this, url);
+        return equalIgnoringASCIICase(m_data.protocol, protocol) || SecurityPolicy::isAccessToURLWhiteListed(this, url);
 
     if (SecurityPolicy::restrictAccessToLocal() && SchemeRegistry::shouldTreatURLSchemeAsLocal(protocol))
         return canLoadLocalResources() || SecurityPolicy::isAccessToURLWhiteListed(this, url);
@@ -403,49 +444,30 @@ String SecurityOrigin::domainForCachePartition() const
     if (isHTTPFamily())
         return host();
 
-    if (SchemeRegistry::shouldPartitionCacheForURLScheme(m_protocol))
+    if (SchemeRegistry::shouldPartitionCacheForURLScheme(m_data.protocol))
         return host();
 
     return emptyString();
 }
 
-void SecurityOrigin::enforceFilePathSeparation()
+void SecurityOrigin::setEnforcesFilePathSeparation()
 {
     ASSERT(isLocal());
-    m_enforceFilePathSeparation = true;
-}
-
-bool SecurityOrigin::isLocal() const
-{
-    return SchemeRegistry::shouldTreatURLSchemeAsLocal(m_protocol);
+    m_enforcesFilePathSeparation = true;
 }
 
 String SecurityOrigin::toString() const
 {
     if (isUnique())
-        return ASCIILiteral("null");
-    if (m_protocol == "file" && m_enforceFilePathSeparation)
-        return ASCIILiteral("null");
+        return "null"_s;
+    if (m_data.protocol == "file" && m_enforcesFilePathSeparation)
+        return "null"_s;
     return toRawString();
 }
 
 String SecurityOrigin::toRawString() const
 {
-    if (m_protocol == "file")
-        return ASCIILiteral("file://");
-
-    StringBuilder result;
-    result.reserveCapacity(m_protocol.length() + m_host.length() + 10);
-    result.append(m_protocol);
-    result.appendLiteral("://");
-    result.append(m_host);
-
-    if (m_port) {
-        result.append(':');
-        result.appendNumber(m_port.value());
-    }
-
-    return result.toString();
+    return m_data.toString();
 }
 
 static inline bool areOriginsMatching(const SecurityOrigin& origin1, const SecurityOrigin& origin2)
@@ -494,7 +516,7 @@ Ref<SecurityOrigin> SecurityOrigin::create(const String& protocol, const String&
     String decodedHost = decodeURLEscapeSequences(host);
     auto origin = create(URL(URL(), protocol + "://" + host + "/"));
     if (port && !isDefaultPortForProtocol(*port, protocol))
-        origin->m_port = port;
+        origin->m_data.port = port;
     return origin;
 }
 
@@ -517,13 +539,7 @@ bool SecurityOrigin::equal(const SecurityOrigin* other) const
 
 bool SecurityOrigin::isSameSchemeHostPort(const SecurityOrigin& other) const
 {
-    if (m_host != other.m_host)
-        return false;
-
-    if (m_protocol != other.m_protocol)
-        return false;
-
-    if (m_port != other.m_port)
+    if (m_data != other.m_data)
         return false;
 
     if (isLocal() && !passesFileCheck(other))
@@ -532,11 +548,16 @@ bool SecurityOrigin::isSameSchemeHostPort(const SecurityOrigin& other) const
     return true;
 }
 
-URL SecurityOrigin::urlWithUniqueSecurityOrigin()
+bool SecurityOrigin::isLocalHostOrLoopbackIPAddress(StringView host)
 {
-    ASSERT(isMainThread());
-    static NeverDestroyed<URL> uniqueSecurityOriginURL(ParsedURLString, ASCIILiteral("data:,"));
-    return uniqueSecurityOriginURL;
+    if (isLoopbackIPAddress(host))
+        return true;
+
+    // FIXME: Ensure that localhost resolves to the loopback address.
+    if (equalLettersIgnoringASCIICase(host, "localhost"))
+        return true;
+
+    return false;
 }
 
 } // namespace WebCore

@@ -103,7 +103,7 @@ public:
     sqlite3* sqlite3Handle() const
     {
 #if !PLATFORM(IOS)
-        ASSERT(m_sharable || currentThread() == m_openingThread || !m_db);
+        ASSERT(m_sharable || m_openingThread == &Thread::current() || !m_db);
 #endif
         return m_db;
     }
@@ -125,7 +125,7 @@ public:
     enum AutoVacuumPragma { AutoVacuumNone = 0, AutoVacuumFull = 1, AutoVacuumIncremental = 2 };
     bool turnOnIncrementalAutoVacuum();
 
-    WEBCORE_EXPORT void setCollationFunction(const String& collationName, std::function<int(int, const void*, int, const void*)>);
+    WEBCORE_EXPORT void setCollationFunction(const String& collationName, WTF::Function<int(int, const void*, int, const void*)>&&);
     void removeCollationFunction(const String& collationName);
 
     // Set this flag to allow access from multiple threads.  Not all multi-threaded accesses are safe!
@@ -149,13 +149,15 @@ private:
     int m_pageSize { -1 };
 
     bool m_transactionInProgress { false };
+#ifndef NDEBUG
     bool m_sharable { false };
+#endif
 
     Lock m_authorizerLock;
     RefPtr<DatabaseAuthorizer> m_authorizer;
 
     Lock m_lockingMutex;
-    ThreadIdentifier m_openingThread { 0 };
+    RefPtr<Thread> m_openingThread { nullptr };
 
     Lock m_databaseClosingMutex;
 

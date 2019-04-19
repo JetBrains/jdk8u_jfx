@@ -26,9 +26,10 @@
 
 #pragma once
 
-#include "DocumentOrderedMap.h"
+#include "TreeScopeOrderedMap.h"
 #include <memory>
 #include <wtf/Forward.h>
+#include <wtf/Vector.h>
 #include <wtf/text/AtomicString.h>
 
 namespace WebCore {
@@ -36,6 +37,7 @@ namespace WebCore {
 class ContainerNode;
 class Document;
 class Element;
+class HTMLImageElement;
 class HTMLLabelElement;
 class HTMLMapElement;
 class LayoutPoint;
@@ -45,7 +47,6 @@ class ShadowRoot;
 
 class TreeScope {
     friend class Document;
-    friend class TreeScopeAdopter;
 
 public:
     TreeScope* parentTreeScope() const { return m_parentTreeScope; }
@@ -56,6 +57,7 @@ public:
 
     WEBCORE_EXPORT Element* getElementById(const AtomicString&) const;
     WEBCORE_EXPORT Element* getElementById(const String&) const;
+    Element* getElementById(StringView) const;
     const Vector<Element*>* getAllElementsById(const AtomicString&) const;
     bool hasElementWithId(const AtomicStringImpl&) const;
     bool containsMultipleElementsWithId(const AtomicString& id) const;
@@ -74,12 +76,16 @@ public:
     // https://dom.spec.whatwg.org/#retarget
     Node& retargetToScope(Node&) const;
 
-    Node* ancestorNodeInThisScope(Node*) const;
+    WEBCORE_EXPORT Node* ancestorNodeInThisScope(Node*) const;
     WEBCORE_EXPORT Element* ancestorElementInThisScope(Element*) const;
 
     void addImageMap(HTMLMapElement&);
     void removeImageMap(HTMLMapElement&);
-    HTMLMapElement* getImageMap(const String& url) const;
+    HTMLMapElement* getImageMap(const AtomicString&) const;
+
+    void addImageElementByUsemap(const AtomicStringImpl&, HTMLImageElement&);
+    void removeImageElementByUsemap(const AtomicStringImpl&, HTMLImageElement&);
+    HTMLImageElement* imageElementByUsemap(const AtomicStringImpl&) const;
 
     // For accessibility.
     bool shouldCacheLabelsByForAttribute() const { return !!m_labelsByForAttribute; }
@@ -87,7 +93,8 @@ public:
     void removeLabel(const AtomicStringImpl& forAttributeValue, HTMLLabelElement&);
     HTMLLabelElement* labelElementForId(const AtomicString& forAttributeValue);
 
-    WEBCORE_EXPORT Element* elementFromPoint(double x, double y);
+    WEBCORE_EXPORT RefPtr<Element> elementFromPoint(double clientX, double clientY);
+    WEBCORE_EXPORT Vector<RefPtr<Element>> elementsFromPoint(double clientX, double clientY);
 
     // Find first anchor with the given name.
     // First searches for an element with the given ID, but if that fails, then looks
@@ -95,9 +102,6 @@ public:
     // Anchor name matching is case sensitive in strict mode and not case sensitive in
     // quirks mode for historical compatibility reasons.
     Element* findAnchor(const String& name);
-
-    // Used by the basic DOM mutation methods (e.g., appendChild()).
-    void adoptIfNeeded(Node&);
 
     ContainerNode& rootNode() const { return m_rootNode; }
 
@@ -117,14 +121,16 @@ protected:
     Node* nodeFromPoint(const LayoutPoint& clientPoint, LayoutPoint* localPoint);
 
 private:
+
     ContainerNode& m_rootNode;
     std::reference_wrapper<Document> m_documentScope;
     TreeScope* m_parentTreeScope;
 
-    std::unique_ptr<DocumentOrderedMap> m_elementsById;
-    std::unique_ptr<DocumentOrderedMap> m_elementsByName;
-    std::unique_ptr<DocumentOrderedMap> m_imageMapsByName;
-    std::unique_ptr<DocumentOrderedMap> m_labelsByForAttribute;
+    std::unique_ptr<TreeScopeOrderedMap> m_elementsById;
+    std::unique_ptr<TreeScopeOrderedMap> m_elementsByName;
+    std::unique_ptr<TreeScopeOrderedMap> m_imageMapsByName;
+    std::unique_ptr<TreeScopeOrderedMap> m_imagesByUsemap;
+    std::unique_ptr<TreeScopeOrderedMap> m_labelsByForAttribute;
 
     std::unique_ptr<IdTargetObserverRegistry> m_idTargetObserverRegistry;
 };
