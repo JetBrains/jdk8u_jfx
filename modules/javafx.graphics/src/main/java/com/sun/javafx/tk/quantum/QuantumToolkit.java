@@ -300,44 +300,50 @@ public final class QuantumToolkit extends Toolkit {
 
     // Called by Glass from Application.run()
     void runToolkit() {
-        Thread user = Thread.currentThread();
+        try {
+            Thread user = Thread.currentThread();
 
-        if (!toolkitRunning.getAndSet(true)) {
-            user.setName("JavaFX Application Thread");
-            // Set context class loader to the same as the thread that called startup
-            user.setContextClassLoader(ccl);
-            setFxUserThread(user);
+            if (!toolkitRunning.getAndSet(true)) {
+                user.setName("JavaFX Application Thread");
+                // Set context class loader to the same as the thread that called startup
+                user.setContextClassLoader(ccl);
+                setFxUserThread(user);
 
-            // Glass screens were inited in Application.run(), assign adapters
-            assignScreensAdapters();
-            /*
-             *  Glass Application instance is now valid - create the ResourceFactory
-             *  on the render thread
-             */
-            renderer.createResourceFactory();
+                // Glass screens were inited in Application.run(), assign adapters
+                assignScreensAdapters();
+                /*
+                 *  Glass Application instance is now valid - create the ResourceFactory
+                 *  on the render thread
+                 */
+                renderer.createResourceFactory();
 
-            pulseRunnable = () -> QuantumToolkit.this.pulseFromQueue();
-            timerRunnable = () -> {
-                try {
-                    QuantumToolkit.this.postPulse();
-                } catch (Throwable th) {
-                    th.printStackTrace(System.err);
-                }
-            };
-            pulseTimer = Application.GetApplication().createTimer(timerRunnable);
+                pulseRunnable = () -> QuantumToolkit.this.pulseFromQueue();
+                timerRunnable = () -> {
+                    try {
+                        QuantumToolkit.this.postPulse();
+                    } catch (Throwable th) {
+                        th.printStackTrace(System.err);
+                    }
+                };
+                pulseTimer = Application.GetApplication().createTimer(timerRunnable);
 
-            Application.GetApplication().setEventHandler(new Application.EventHandler() {
-                @Override public void handleQuitAction(Application app, long time) {
-                    GlassStage.requestClosingAllWindows();
-                }
+                Application.GetApplication().setEventHandler(new Application.EventHandler() {
+                    @Override
+                    public void handleQuitAction(Application app, long time) {
+                        GlassStage.requestClosingAllWindows();
+                    }
 
-                @Override public boolean handleThemeChanged(String themeName) {
-                    return PlatformImpl.setAccessibilityTheme(themeName);
-                }
-            });
+                    @Override
+                    public boolean handleThemeChanged(String themeName) {
+                        return PlatformImpl.setAccessibilityTheme(themeName);
+                    }
+                });
+            }
+            // Initialize JavaFX scene graph
+            initSceneGraph();
+        } catch (Throwable t) {
+            t.printStackTrace();
         }
-        // Initialize JavaFX scene graph
-        initSceneGraph();
         launchLatch.countDown();
         try {
             Application.invokeAndWait(this.userRunnable);
