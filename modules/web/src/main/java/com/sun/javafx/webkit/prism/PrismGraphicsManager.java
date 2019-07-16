@@ -36,6 +36,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 
 public final class PrismGraphicsManager extends WCGraphicsManager {
 
@@ -151,6 +153,9 @@ public final class PrismGraphicsManager extends WCGraphicsManager {
 
     @Override
     protected String[] getSupportedMediaTypes() {
+        if (isMediaDisabled()) {
+            return new String[0];
+        }
         String[] types = MediaManager.getSupportedContentTypes();
         // RT-19949: disable FLV support (workaround for youtube):
         // if browser reports support for video/x-flv, youtube player sets
@@ -173,5 +178,10 @@ public final class PrismGraphicsManager extends WCGraphicsManager {
     @Override
     protected WCMediaPlayer createMediaPlayer() {
         return new WCMediaPlayerImpl();
+    }
+
+    public static boolean isMediaDisabled() {
+        return AccessController.doPrivileged((PrivilegedAction<Boolean>) () ->
+                Boolean.getBoolean("jbr.jfx.media.disabled"));
     }
 }

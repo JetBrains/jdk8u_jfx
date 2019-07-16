@@ -155,6 +155,9 @@ final class WCMediaPlayerImpl extends WCMediaPlayer
 
 
     protected void load(String url, String userAgent) {
+        if (PrismGraphicsManager.isMediaDisabled()) {
+            return;
+        }
         synchronized (lock) {
             if (createThread != null) {
                 createThread.cancel();
@@ -225,6 +228,9 @@ final class WCMediaPlayerImpl extends WCMediaPlayer
     }
 
     protected void prepareToPlay() {
+        if (PrismGraphicsManager.isMediaDisabled()) {
+            return;
+        }
         synchronized (lock) {
             if (player == null) {
                 // Only start the thread if it has been created but not yet started.
@@ -332,6 +338,9 @@ final class WCMediaPlayerImpl extends WCMediaPlayer
     }
 
     protected void renderCurrentFrame(WCGraphicsContext gc, int x, int y, int w, int h) {
+        if (PrismGraphicsManager.isMediaDisabled()) {
+            return;
+        }
         // TODO: need a render lock in MediaFrameHandler
         synchronized (lock) {
             renderImpl(gc, x, y, w, h);
